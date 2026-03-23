@@ -1009,18 +1009,27 @@ class _SettingsTabState extends State<SettingsTab>
                                 if (newPassCtrl.text.length < 8)
                                   throw 'Password must be at least 8 characters';
                                 // Re-auth to verify current password
-                                final email =
-                                    supabase.auth.currentUser?.email ?? '';
-                                final re = await supabase.auth
-                                    .signInWithPassword(
-                                      email: email,
-                                      password: curPassCtrl.text,
-                                    );
-                                if (re.user == null)
-                                  throw 'Incorrect current password';
+                                final email = _currentUser?['email'] ??
+                                    supabase.auth.currentUser?.email ??
+                                    '';
+                                if (email.isEmpty) throw 'Email not found';
+
+                                await supabase.auth.signInWithPassword(
+                                  email: email,
+                                  password: curPassCtrl.text,
+                                );
+                                
+                                // Update Password in Auth
                                 await supabase.auth.updateUser(
                                   UserAttributes(password: newPassCtrl.text),
                                 );
+
+                                // Sync force_password_change in staff table
+                                await supabase
+                                    .from('staff')
+                                    .update({'force_password_change': false})
+                                    .eq('user_id', supabase.auth.currentUser!.id);
+
                               }
                               // Name change
                               if (nameCtrl.text.trim().isNotEmpty &&
