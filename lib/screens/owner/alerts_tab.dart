@@ -12,7 +12,8 @@ class AlertsTab extends StatefulWidget {
   State<AlertsTab> createState() => _AlertsTabState();
 }
 
-class _AlertsTabState extends State<AlertsTab> with SingleTickerProviderStateMixin {
+class _AlertsTabState extends State<AlertsTab>
+    with SingleTickerProviderStateMixin {
   bool _isLoading = true;
   String _selectedFilter = 'ALL';
   List<dynamic> _notifications = [];
@@ -21,20 +22,26 @@ class _AlertsTabState extends State<AlertsTab> with SingleTickerProviderStateMix
   @override
   void initState() {
     super.initState();
-    _bgController = AnimationController(vsync: this, duration: const Duration(seconds: 10))..repeat();
+    _bgController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 10),
+    )..repeat();
     _fetchNotifications();
+    // Jab bhi koi naya admission/payment/kuch bhi ho cache update hoga
+    // aur ye listener turant call hoga — alerts instantly dikhenge
+    cacheUpdateNotifier.addListener(_fetchNotifications);
   }
 
   @override
   void dispose() {
     _bgController.dispose();
+    cacheUpdateNotifier.removeListener(_fetchNotifications);
     super.dispose();
   }
 
   void _fetchNotifications() {
-    setState(() => _isLoading = true);
     _notifications = CacheService.read('notifications');
-    setState(() => _isLoading = false);
+    if (mounted) setState(() => _isLoading = false);
   }
 
   Future<void> _markAllRead() async {
@@ -44,7 +51,6 @@ class _AlertsTabState extends State<AlertsTab> with SingleTickerProviderStateMix
           .update({'is_read': true})
           .eq('library_id', currentLibraryId)
           .eq('is_read', false);
-      
       await CacheService.onAllNotificationsRead();
       _fetchNotifications();
     } catch (e) {
@@ -59,7 +65,6 @@ class _AlertsTabState extends State<AlertsTab> with SingleTickerProviderStateMix
           .from('notifications')
           .update({'is_read': true})
           .eq('id', n['id']);
-      
       await CacheService.onNotificationRead(n['id']);
       _fetchNotifications();
     } catch (e) {
@@ -71,12 +76,12 @@ class _AlertsTabState extends State<AlertsTab> with SingleTickerProviderStateMix
     return _notifications.where((n) {
       if (_selectedFilter == 'ALL') return true;
       if (_selectedFilter == 'UNREAD') return n['is_read'] == false;
-      
       final type = n['type']?.toString().toLowerCase() ?? '';
       if (_selectedFilter == 'EXPIRY') return type.contains('expiry');
-      if (_selectedFilter == 'ADMISSION') return type.contains('admission');
-      if (_selectedFilter == 'FEE') return type.contains('fee') || type.contains('payment');
-      
+      if (_selectedFilter == 'ADMISSION')
+        return type.contains('admission') || type.contains('renewal');
+      if (_selectedFilter == 'FEE')
+        return type.contains('fee') || type.contains('payment');
       return true;
     }).toList();
   }
@@ -93,8 +98,12 @@ class _AlertsTabState extends State<AlertsTab> with SingleTickerProviderStateMix
               child: ImageFiltered(
                 imageFilter: ImageFilter.blur(sigmaX: 80, sigmaY: 80),
                 child: Container(
-                  width: 300, height: 300,
-                  decoration: BoxDecoration(shape: BoxShape.circle, color: const Color(0xFF6366F1).withOpacity(0.15)),
+                  width: 300,
+                  height: 300,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: const Color(0xFF6366F1).withOpacity(0.15),
+                  ),
                 ),
               ),
             ),
@@ -104,8 +113,12 @@ class _AlertsTabState extends State<AlertsTab> with SingleTickerProviderStateMix
               child: ImageFiltered(
                 imageFilter: ImageFilter.blur(sigmaX: 80, sigmaY: 80),
                 child: Container(
-                  width: 250, height: 250,
-                  decoration: BoxDecoration(shape: BoxShape.circle, color: const Color(0xFF10B981).withOpacity(0.1)),
+                  width: 250,
+                  height: 250,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: const Color(0xFF10B981).withOpacity(0.1),
+                  ),
                 ),
               ),
             ),
@@ -115,8 +128,12 @@ class _AlertsTabState extends State<AlertsTab> with SingleTickerProviderStateMix
               child: ImageFiltered(
                 imageFilter: ImageFilter.blur(sigmaX: 80, sigmaY: 80),
                 child: Container(
-                  width: 200, height: 200,
-                  decoration: BoxDecoration(shape: BoxShape.circle, color: const Color(0xFFF43F5E).withOpacity(0.1)),
+                  width: 200,
+                  height: 200,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: const Color(0xFFF43F5E).withOpacity(0.1),
+                  ),
                 ),
               ),
             ),
@@ -140,8 +157,10 @@ class _AlertsTabState extends State<AlertsTab> with SingleTickerProviderStateMix
             child: Container(color: Colors.transparent),
           ),
           SafeArea(
-            child: _isLoading 
-                ? const Center(child: CircularProgressIndicator(color: Color(0xFF6366F1)))
+            child: _isLoading
+                ? const Center(
+                    child: CircularProgressIndicator(color: Color(0xFF6366F1)),
+                  )
                 : Column(
                     children: [
                       Padding(
@@ -150,31 +169,56 @@ class _AlertsTabState extends State<AlertsTab> with SingleTickerProviderStateMix
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
-                              'Activity Alerts', 
-                              style: GoogleFonts.plusJakartaSans(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: -0.5)
+                              'Activity Alerts',
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 24,
+                                fontWeight: FontWeight.w900,
+                                color: Colors.white,
+                                letterSpacing: -0.5,
+                              ),
                             ),
                             if (hasUnread)
                               TextButton(
                                 onPressed: _markAllRead,
                                 style: TextButton.styleFrom(
-                                  backgroundColor: const Color(0xFF6366F1).withOpacity(0.15),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                  backgroundColor: const Color(
+                                    0xFF6366F1,
+                                  ).withOpacity(0.15),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 8,
+                                  ),
                                 ),
-                                child: Text('Mark all read', style: GoogleFonts.plusJakartaSans(fontSize: 12, fontWeight: FontWeight.w800, color: const Color(0xFF818CF8))),
+                                child: Text(
+                                  'Mark all read',
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w800,
+                                    color: const Color(0xFF818CF8),
+                                  ),
+                                ),
                               ),
                           ],
                         ),
                       ),
                       _buildFilterChips(),
                       Expanded(
-                        child: _filteredNotifications.isEmpty 
-                          ? _buildEmptyState()
-                          : ListView.builder(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8).copyWith(bottom: 100),
-                              itemCount: _filteredNotifications.length,
-                              itemBuilder: (context, index) => _buildNotificationCard(_filteredNotifications[index]),
-                            ),
+                        child: _filteredNotifications.isEmpty
+                            ? _buildEmptyState()
+                            : ListView.builder(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 8,
+                                ).copyWith(bottom: 100),
+                                itemCount: _filteredNotifications.length,
+                                itemBuilder: (context, index) =>
+                                    _buildNotificationCard(
+                                      _filteredNotifications[index],
+                                    ),
+                              ),
                       ),
                     ],
                   ),
@@ -199,19 +243,32 @@ class _AlertsTabState extends State<AlertsTab> with SingleTickerProviderStateMix
               margin: const EdgeInsets.only(right: 8),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               decoration: BoxDecoration(
-                color: isSelected ? const Color(0xFF6366F1).withOpacity(0.2) : Colors.white.withOpacity(0.04),
+                color: isSelected
+                    ? const Color(0xFF6366F1).withOpacity(0.2)
+                    : Colors.white.withOpacity(0.04),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: isSelected ? const Color(0xFF818CF8) : Colors.white.withOpacity(0.08)),
-                boxShadow: isSelected ? [BoxShadow(color: const Color(0xFF6366F1).withOpacity(0.3), blurRadius: 12)] : [],
+                border: Border.all(
+                  color: isSelected
+                      ? const Color(0xFF818CF8)
+                      : Colors.white.withOpacity(0.08),
+                ),
+                boxShadow: isSelected
+                    ? [
+                        BoxShadow(
+                          color: const Color(0xFF6366F1).withOpacity(0.3),
+                          blurRadius: 12,
+                        ),
+                      ]
+                    : [],
               ),
               child: Text(
-                f, 
+                f,
                 style: GoogleFonts.plusJakartaSans(
-                  fontSize: 11, 
-                  fontWeight: FontWeight.w800, 
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
                   letterSpacing: 0.5,
-                  color: isSelected ? Colors.white : Colors.white54
-                )
+                  color: isSelected ? Colors.white : Colors.white54,
+                ),
               ),
             ),
           );
@@ -230,63 +287,85 @@ class _AlertsTabState extends State<AlertsTab> with SingleTickerProviderStateMix
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(isUnread ? 0.08 : 0.03),
+          color: isUnread
+              ? Colors.white.withOpacity(0.08)
+              : const Color(0xFF141414),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: isUnread ? iconData.color.withOpacity(0.5) : Colors.white.withOpacity(0.05)),
-          boxShadow: isUnread ? [BoxShadow(color: iconData.color.withOpacity(0.15), blurRadius: 20)] : [],
+          border: isUnread
+              ? const Border(
+                  left: BorderSide(color: Color(0xFF6366F1), width: 3),
+                )
+              : null,
         ),
-        child: Stack(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: iconData.color.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(iconData.icon, color: iconData.color, size: 22),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(color: iconData.color.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
-                    child: Icon(iconData.icon, color: iconData.color, size: 22),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          n['title'] ?? 'Notification',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                      if (isUnread)
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: iconData.color,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: iconData.color.withOpacity(0.8),
+                                blurRadius: 6,
+                              ),
+                            ],
+                          ),
+                        ),
+                      const SizedBox(width: 4),
+                      Text(
+                        _timeAgo(createdAt),
+                        style: const TextStyle(
+                          color: Colors.white38,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(n['title'] ?? 'Notification', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w800, fontSize: 14, color: Colors.white)),
-                        const SizedBox(height: 4),
-                        Text(n['message'] ?? '', style: GoogleFonts.plusJakartaSans(color: Colors.white70, fontSize: 13, height: 1.4), maxLines: 2, overflow: TextOverflow.ellipsis),
-                        const SizedBox(height: 10),
-                        Text(_timeAgo(createdAt), style: GoogleFonts.plusJakartaSans(color: Colors.white38, fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
-                      ],
+                  const SizedBox(height: 4),
+                  Text(
+                    n['message'] ?? '',
+                    style: const TextStyle(
+                      color: Color(0xFFAAAAAA),
+                      fontSize: 13,
                     ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  if (isUnread) ...[
-                    const SizedBox(width: 8),
-                    Container(
-                      width: 10, height: 10,
-                      margin: const EdgeInsets.only(top: 6),
-                      decoration: BoxDecoration(
-                        color: iconData.color, 
-                        shape: BoxShape.circle,
-                        boxShadow: [BoxShadow(color: iconData.color.withOpacity(0.8), blurRadius: 6)]
-                      )
-                    ),
-                  ],
                 ],
               ),
             ),
-            if (isUnread)
-              Positioned(
-                left: 0, top: 0, bottom: 0,
-                child: Container(
-                  width: 4, 
-                  decoration: BoxDecoration(
-                    color: iconData.color,
-                    boxShadow: [BoxShadow(color: iconData.color, blurRadius: 8)],
-                  )
-                ),
-              ),
           ],
         ),
       ),
@@ -295,11 +374,19 @@ class _AlertsTabState extends State<AlertsTab> with SingleTickerProviderStateMix
 
   ({IconData icon, Color color}) _getIconData(String? typeStr) {
     final type = typeStr?.toLowerCase() ?? '';
-    if (type.contains('expiry_warning')) return (icon: Icons.timer_outlined, color: const Color(0xFFFBBF24));
-    if (type.contains('subscription')) return (icon: Icons.error_outline, color: const Color(0xFFF87171));
-    if (type.contains('admission')) return (icon: Icons.person_add_outlined, color: const Color(0xFF38BDF8));
-    if (type.contains('fee') || type.contains('payment')) return (icon: Icons.payments_outlined, color: const Color(0xFF34D399));
-    if (type.contains('seat')) return (icon: Icons.airline_seat_recline_normal, color: const Color(0xFFA78BFA));
+    if (type.contains('expiry_warning'))
+      return (icon: Icons.timer_outlined, color: const Color(0xFFFBBF24));
+    if (type.contains('subscription'))
+      return (icon: Icons.error_outline, color: const Color(0xFFF87171));
+    if (type.contains('admission') || type.contains('renewal'))
+      return (icon: Icons.person_add_outlined, color: const Color(0xFF38BDF8));
+    if (type.contains('fee') || type.contains('payment'))
+      return (icon: Icons.payments_outlined, color: const Color(0xFF34D399));
+    if (type.contains('seat'))
+      return (
+        icon: Icons.airline_seat_recline_normal,
+        color: const Color(0xFFA78BFA),
+      );
     return (icon: Icons.info_outline, color: const Color(0xFF94A3B8));
   }
 
@@ -318,13 +405,33 @@ class _AlertsTabState extends State<AlertsTab> with SingleTickerProviderStateMix
         children: [
           Container(
             padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(color: Colors.white.withOpacity(0.02), shape: BoxShape.circle),
-            child: const Icon(Icons.notifications_none, size: 64, color: Colors.white24),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.02),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.notifications_none,
+              size: 64,
+              color: Colors.white24,
+            ),
           ),
           const SizedBox(height: 24),
-          Text('No new alerts', style: GoogleFonts.plusJakartaSans(color: Colors.white70, fontSize: 18, fontWeight: FontWeight.w800)),
+          Text(
+            'No new alerts',
+            style: GoogleFonts.plusJakartaSans(
+              color: Colors.white70,
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
           const SizedBox(height: 8),
-          Text("You're all caught up!", style: GoogleFonts.plusJakartaSans(color: Colors.white38, fontSize: 14)),
+          Text(
+            "You're all caught up!",
+            style: GoogleFonts.plusJakartaSans(
+              color: Colors.white38,
+              fontSize: 14,
+            ),
+          ),
         ],
       ),
     );
