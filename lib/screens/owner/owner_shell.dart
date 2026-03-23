@@ -7,8 +7,8 @@ import '../../globals.dart';
 import '../../login_screen.dart';
 import 'home_tab.dart';
 import 'seat_map_tab.dart';
-import 'settings_tab.dart';
-import 'students_tab.dart';
+import 'settings_tab.dart' show SettingsTab;
+import 'students_tab.dart' show StudentsTab;
 import 'alerts_tab.dart';
 import 'renew_sheet.dart';
 
@@ -21,12 +21,6 @@ class OwnerShell extends StatefulWidget {
 
 class _OwnerShellState extends State<OwnerShell> {
   int _selectedIndex = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    // Subscription data is now fetched in SyncLoadingScreen beforehand.
-  }
 
   void _showExpiredStaffDialog() {
     showDialog(
@@ -72,18 +66,17 @@ class _OwnerShellState extends State<OwnerShell> {
 
   @override
   Widget build(BuildContext context) {
-    // Check global variables populated by SyncLoadingScreen
-    final expired = subscriptionEnd.isBefore(DateTime.now()) || subscriptionStatus == 'expired';
+    final expired =
+        subscriptionEnd.isBefore(DateTime.now()) ||
+        subscriptionStatus == 'expired';
 
     if (expired) {
       return _buildExpiredScreen();
     }
 
-    final isDarkTab = _selectedIndex == 0 || _selectedIndex == 1 || _selectedIndex == 2 || _selectedIndex == 3 || _selectedIndex == 4; // All tabs are now dark
-
     return Scaffold(
-      extendBody: true, // Allow body to flow under floating nav
-      backgroundColor: isDarkTab ? const Color(0xFF0F172A) : Colors.white,
+      extendBody: true,
+      backgroundColor: const Color(0xFF0F172A),
       body: SafeArea(
         bottom: false,
         child: Column(
@@ -92,51 +85,70 @@ class _OwnerShellState extends State<OwnerShell> {
             Expanded(
               child: IndexedStack(
                 index: _selectedIndex,
-                children: const [
-                  HomeTab(),
-                  SeatMapTab(),
+                children: [
+                  const HomeTab(),
+                  const SeatMapTab(),
                   StudentsTab(),
-                  AlertsTab(),
-                  SettingsTab(),
+                  const AlertsTab(),
+                  const SettingsTab(),
                 ],
               ),
             ),
           ],
         ),
       ),
-      bottomNavigationBar: _buildBottomNav(isDarkTab),
+      bottomNavigationBar: _buildBottomNav(),
     );
   }
 
-  Widget _buildBottomNav(bool isDarkTab) {
+  Widget _buildBottomNav() {
     final items = [
       {'icon': Icons.home_outlined, 'active': Icons.home, 'label': 'Home'},
-      {'icon': Icons.grid_view_outlined, 'active': Icons.grid_view_rounded, 'label': 'Seats'},
-      {'icon': Icons.people_outline, 'active': Icons.people, 'label': 'Students'},
-      {'icon': Icons.notifications_outlined, 'active': Icons.notifications, 'label': 'Alerts'},
-      {'icon': Icons.settings_outlined, 'active': Icons.settings, 'label': 'Settings'},
+      {
+        'icon': Icons.grid_view_outlined,
+        'active': Icons.grid_view_rounded,
+        'label': 'Seats',
+      },
+      {
+        'icon': Icons.people_outline,
+        'active': Icons.people,
+        'label': 'Students',
+      },
+      {
+        'icon': Icons.notifications_outlined,
+        'active': Icons.notifications,
+        'label': 'Alerts',
+      },
+      {
+        'icon': Icons.settings_outlined,
+        'active': Icons.settings,
+        'label': 'Settings',
+      },
     ];
 
     double width = MediaQuery.of(context).size.width;
-    double itemWidth = (width - 32) / 5; // Account for horizontal margins
+    double itemWidth = (width - 32) / 5;
 
     return SafeArea(
       child: Container(
         margin: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
         height: 70,
         decoration: BoxDecoration(
-          color: isDarkTab ? const Color(0xFF0F172A).withOpacity(0.6) : Colors.white.withOpacity(0.8),
+          color: const Color(0xFF0F172A).withOpacity(0.6),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: isDarkTab ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.05)),
+          border: Border.all(color: Colors.white.withOpacity(0.1)),
           boxShadow: [
-             BoxShadow(color: Colors.black.withOpacity(isDarkTab ? 0.3 : 0.05), blurRadius: 20, offset: const Offset(0, 10)),
+            BoxShadow(
+              color: Colors.black.withOpacity(0.3),
+              blurRadius: 20,
+              offset: const Offset(0, 10),
+            ),
           ],
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(20),
           child: Stack(
             children: [
-              // Glassmorphism Blur
               BackdropFilter(
                 filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
                 child: Container(color: Colors.transparent),
@@ -150,7 +162,7 @@ class _OwnerShellState extends State<OwnerShell> {
                   width: 54,
                   height: 54,
                   decoration: BoxDecoration(
-                    color: isDarkTab ? const Color(0xFF6366F1).withOpacity(0.2) : primaryColor.withOpacity(0.12),
+                    color: const Color(0xFF6366F1).withOpacity(0.2),
                     shape: BoxShape.circle,
                   ),
                 ),
@@ -167,10 +179,12 @@ class _OwnerShellState extends State<OwnerShell> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
-                            isSelected ? entry.value['active'] as IconData : entry.value['icon'] as IconData,
-                            color: isSelected 
-                               ? (isDarkTab ? const Color(0xFF818CF8) : primaryColor)
-                               : (isDarkTab ? Colors.white54 : textMuted),
+                            isSelected
+                                ? entry.value['active'] as IconData
+                                : entry.value['icon'] as IconData,
+                            color: isSelected
+                                ? const Color(0xFF818CF8)
+                                : Colors.white54,
                             size: 24,
                           ),
                           const SizedBox(height: 4),
@@ -178,10 +192,12 @@ class _OwnerShellState extends State<OwnerShell> {
                             entry.value['label'] as String,
                             style: GoogleFonts.plusJakartaSans(
                               fontSize: 10,
-                              fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-                              color: isSelected 
-                                 ? (isDarkTab ? const Color(0xFF818CF8) : primaryColor) 
-                                 : (isDarkTab ? Colors.white54 : textMuted),
+                              fontWeight: isSelected
+                                  ? FontWeight.w800
+                                  : FontWeight.w600,
+                              color: isSelected
+                                  ? const Color(0xFF818CF8)
+                                  : Colors.white54,
                             ),
                           ),
                         ],
@@ -208,18 +224,36 @@ class _OwnerShellState extends State<OwnerShell> {
             children: [
               Container(
                 padding: const EdgeInsets.all(24),
-                decoration: const BoxDecoration(color: Color(0xFFFEF2F2), shape: BoxShape.circle),
-                child: const Icon(Icons.timer_off_outlined, color: Color(0xFFEF4444), size: 64),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFEF2F2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.timer_off_outlined,
+                  color: Color(0xFFEF4444),
+                  size: 64,
+                ),
               ),
               const SizedBox(height: 32),
-              Text('Subscription Expired', style: GoogleFonts.plusJakartaSans(fontSize: 24, fontWeight: FontWeight.w800, color: const Color(0xFF111111))),
+              Text(
+                'Subscription Expired',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
+                  color: const Color(0xFF111111),
+                ),
+              ),
               const SizedBox(height: 12),
               Text(
-                currentRole == 'owner' 
-                  ? 'Your library subscription has expired. Please renew to continue accessing the dashboard and managing your students.' 
-                  : 'The library subscription has expired. Please contact the owner to renew access.',
+                currentRole == 'owner'
+                    ? 'Your library subscription has expired. Please renew to continue.'
+                    : 'The library subscription has expired. Contact the owner to renew.',
                 textAlign: TextAlign.center,
-                style: GoogleFonts.plusJakartaSans(fontSize: 15, color: textMuted, height: 1.5),
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 15,
+                  color: textMuted,
+                  height: 1.5,
+                ),
               ),
               const SizedBox(height: 48),
               if (currentRole == 'owner')
@@ -228,12 +262,20 @@ class _OwnerShellState extends State<OwnerShell> {
                   child: ElevatedButton(
                     onPressed: _openRenewFlow,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1E2D6B), 
-                      foregroundColor: Colors.white, 
-                      padding: const EdgeInsets.symmetric(vertical: 16), 
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
+                      backgroundColor: const Color(0xFF1E2D6B),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
-                    child: const Text('RENEW NOW', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1)),
+                    child: const Text(
+                      'RENEW NOW',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1,
+                      ),
+                    ),
                   ),
                 ),
               const SizedBox(height: 12),
@@ -259,12 +301,20 @@ class _OwnerShellState extends State<OwnerShell> {
       decoration: const BoxDecoration(color: Color(0xFFFEF3C7)),
       child: Row(
         children: [
-          const Icon(Icons.warning_amber_rounded, color: Color(0xFFB45309), size: 20),
+          const Icon(
+            Icons.warning_amber_rounded,
+            color: Color(0xFFB45309),
+            size: 20,
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
               'Subscription expires ${DateFormat('dd MMM').format(subscriptionEnd)} — $daysLeft days left',
-              style: GoogleFonts.plusJakartaSans(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF92400E)),
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF92400E),
+              ),
             ),
           ),
           if (currentRole == 'owner')
@@ -273,12 +323,20 @@ class _OwnerShellState extends State<OwnerShell> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF1E2D6B),
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 0,
+                ),
                 minimumSize: const Size(0, 32),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6),
+                ),
                 elevation: 0,
               ),
-              child: const Text('Renew Now', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+              child: const Text(
+                'Renew Now',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+              ),
             ),
         ],
       ),

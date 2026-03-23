@@ -16,7 +16,8 @@ class AddStudentWizard extends StatefulWidget {
   State<AddStudentWizard> createState() => _AddStudentWizardState();
 }
 
-class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerProviderStateMixin {
+class _AddStudentWizardState extends State<AddStudentWizard>
+    with SingleTickerProviderStateMixin {
   bool get isRenew => widget.renewStudent != null;
   int _currentStep = 0;
   bool _isBusy = false;
@@ -64,10 +65,13 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
   @override
   void initState() {
     super.initState();
-    _bgController = AnimationController(vsync: this, duration: const Duration(seconds: 15))..repeat(reverse: true);
+    _bgController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 15),
+    )..repeat(reverse: true);
     _recalcEndDate();
     if (isRenew) {
-      _currentStep = 1; // Skip Step 1
+      _currentStep = 1;
       _prefillRenewData();
     }
     _fetchInitialData();
@@ -80,11 +84,9 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
     _addressController.text = s['address'] ?? '';
     _phoneController.text = s['phone'] ?? '';
     _selectedGender = s['gender'] ?? 'M';
-
     _selectedShifts = List<String>.from(s['selected_shifts'] ?? []);
     _selectedSeatId = s['seat_id'];
     _comboKey = s['combination_key'] ?? '';
-    
     setState(() {});
   }
 
@@ -104,7 +106,10 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
     return Container(
       width: size,
       height: size,
-      decoration: BoxDecoration(shape: BoxShape.circle, color: color.withOpacity(opacity)),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: color.withOpacity(opacity),
+      ),
     );
   }
 
@@ -116,7 +121,6 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
           final val = _bgController.value;
           final sinVal = math.sin(val * math.pi * 2);
           final cosVal = math.cos(val * math.pi * 2);
-
           return Stack(
             children: [
               Positioned(
@@ -130,9 +134,9 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
                 child: _buildBlob(400, const Color(0xFF6366F1), 0.2),
               ),
               Positioned(
-                 top: 200 + (cosVal * 50),
-                 right: -50 + (sinVal * -30),
-                 child: _buildBlob(350, const Color(0xFF10B981), 0.15),
+                top: 200 + (cosVal * 50),
+                right: -50 + (sinVal * -30),
+                child: _buildBlob(350, const Color(0xFF10B981), 0.15),
               ),
               BackdropFilter(
                 filter: ImageFilter.blur(sigmaX: 80, sigmaY: 80),
@@ -148,7 +152,6 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
   Future<void> _fetchInitialData() async {
     setState(() => _isDataLoading = true);
     try {
-      // 1. Fetch Seats (removed 'type' column as it's not in schema)
       final seatsResult = await supabase
           .from('seats')
           .select('id, seat_number, gender')
@@ -156,12 +159,13 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
           .eq('is_active', true);
       _allSeats = List<Map<String, dynamic>>.from(seatsResult);
 
-      // 2. Fetch occupied shifts using seat IDs (join-less filter)
       final seatIds = _allSeats.map((s) => s['id'] as String).toList();
       if (seatIds.isNotEmpty) {
         final occupiedResult = await supabase
             .from('student_seat_shifts')
-            .select('seat_id, shift_code, student_id, students!inner(is_deleted)')
+            .select(
+              'seat_id, shift_code, student_id, students!inner(is_deleted)',
+            )
             .inFilter('seat_id', seatIds)
             .eq('students.is_deleted', false);
         _occupiedShifts = List<Map<String, dynamic>>.from(occupiedResult);
@@ -169,19 +173,39 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
         _occupiedShifts = [];
       }
 
-      // Natural Sort by seat number
       _allSeats.sort((a, b) {
-        final numA = int.tryParse(a['seat_number'].toString().replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
-        final numB = int.tryParse(b['seat_number'].toString().replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+        final numA =
+            int.tryParse(
+              a['seat_number'].toString().replaceAll(RegExp(r'[^0-9]'), ''),
+            ) ??
+            0;
+        final numB =
+            int.tryParse(
+              b['seat_number'].toString().replaceAll(RegExp(r'[^0-9]'), ''),
+            ) ??
+            0;
         return numA.compareTo(numB);
       });
 
-      // 3. Parallel fetch for lockers, policies, and plans
       final others = await Future.wait<dynamic>([
-        supabase.from('lockers').select('id, locker_number, gender, status').eq('library_id', currentLibraryId),
-        supabase.from('locker_policies').select('eligible_combos, monthly_fee').eq('library_id', currentLibraryId).maybeSingle(),
-        supabase.from('combo_plans').select('id, combination_key, months, fee').eq('library_id', currentLibraryId),
-        supabase.from('libraries').select('is_gender_neutral').eq('id', currentLibraryId).single(),
+        supabase
+            .from('lockers')
+            .select('id, locker_number, gender, status')
+            .eq('library_id', currentLibraryId),
+        supabase
+            .from('locker_policies')
+            .select('eligible_combos, monthly_fee')
+            .eq('library_id', currentLibraryId)
+            .maybeSingle(),
+        supabase
+            .from('combo_plans')
+            .select('id, combination_key, months, fee')
+            .eq('library_id', currentLibraryId),
+        supabase
+            .from('libraries')
+            .select('is_gender_neutral')
+            .eq('id', currentLibraryId)
+            .single(),
       ]);
 
       if (mounted) {
@@ -191,18 +215,11 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
           _comboPricing = others[2] as List;
           _isGenderNeutral = (others[3] as Map)['is_gender_neutral'] ?? false;
           _isDataLoading = false;
-          
+
           if (_comboKey.isNotEmpty) {
             _updatePricing();
           }
         });
-
-        debugPrint('Seats fetched: ${_allSeats.length}');
-        debugPrint('Library ID: $currentLibraryId');
-        debugPrint('Occupied shifts count: ${_occupiedShifts.length}');
-        for (final o in _occupiedShifts) {
-          debugPrint('Occupied: seat=${o["seat_id"]} shift=${o["shift_code"]}');
-        }
       }
     } catch (e) {
       debugPrint('Fetch error: $e');
@@ -210,21 +227,16 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
     }
   }
 
+  // ── KEY FIX: update baseFee from comboPricing whenever month or combo changes ──
   void _updatePricing() {
     final plan = _comboPricing.firstWhereOrNull(
-      (p) => p['combination_key'] == _comboKey && p['months'] == _selectedMonths
+      (p) =>
+          p['combination_key'] == _comboKey && p['months'] == _selectedMonths,
     );
-    if (plan != null) {
-      setState(() {
-        _baseFee = (plan['fee'] ?? 0).toDouble();
-        _calculateTotal();
-      });
-    } else {
-      setState(() {
-        _baseFee = 0;
-        _calculateTotal();
-      });
-    }
+    setState(() {
+      _baseFee = plan != null ? (plan['fee'] ?? 0).toDouble() : 0;
+      _calculateTotal();
+    });
   }
 
   void _onShiftToggle(String code) {
@@ -235,7 +247,8 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
         _selectedShifts.add(code);
       }
       final order = ['M', 'A', 'E', 'N'];
-      final sorted = _selectedShifts.toList()..sort((a, b) => order.indexOf(a) - order.indexOf(b));
+      final sorted = _selectedShifts.toList()
+        ..sort((a, b) => order.indexOf(a) - order.indexOf(b));
       _comboKey = sorted.join();
       _selectedSeatId = null;
       _selectedLockerId = null;
@@ -251,9 +264,10 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
       lastDate: DateTime.now().add(const Duration(days: 365)),
       builder: (context, child) => Theme(
         data: Theme.of(context).copyWith(
-          colorScheme: const ColorScheme.light(
-            primary: Color(0xFF1A237E))),
-        child: child!),
+          colorScheme: const ColorScheme.light(primary: Color(0xFF1A237E)),
+        ),
+        child: child!,
+      ),
     );
     if (picked != null) {
       setState(() {
@@ -274,8 +288,9 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
   }
 
   void _calculateTotal() {
-    _lockerFeeTotal = _selectedLockerId != null 
-        ? ((_lockerPolicy?['monthly_fee'] as num? ?? 200).toDouble() * _selectedMonths)
+    _lockerFeeTotal = _selectedLockerId != null
+        ? ((_lockerPolicy?['monthly_fee'] as num? ?? 200).toDouble() *
+              _selectedMonths)
         : 0.0;
     _totalFee = _baseFee + _lockerFeeTotal;
     if (_isFullPaid) {
@@ -284,22 +299,40 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
     _amountPaidController.text = _amountPaid.toInt().toString();
   }
 
-  double get _effectiveAmount => (_totalFee - _discountAmount).clamp(0, double.infinity);
-  double get _balanceDue => (_effectiveAmount - _amountPaid).clamp(0, double.infinity);
+  double get _effectiveAmount =>
+      (_totalFee - _discountAmount).clamp(0, double.infinity);
+  double get _balanceDue =>
+      (_effectiveAmount - _amountPaid).clamp(0, double.infinity);
 
   String get _dbStatus {
-    if (_balanceDue == 0 && (_amountPaid > 0 || _discountAmount >= _totalFee)) return 'paid';
+    if (_balanceDue == 0 && (_amountPaid > 0 || _discountAmount >= _totalFee))
+      return 'paid';
     if (_amountPaid == 0 && _discountAmount == 0) return 'pending';
-    if (_amountPaid == 0 && _discountAmount > 0 && _balanceDue > 0) return 'discounted';
+    if (_amountPaid == 0 && _discountAmount > 0 && _balanceDue > 0)
+      return 'discounted';
     return 'partial';
   }
 
-  String get _displayStatus => (_dbStatus == 'paid' && _discountAmount > 0) ? 'paid*' : _dbStatus;
+  String get _displayStatus =>
+      (_dbStatus == 'paid' && _discountAmount > 0) ? 'paid*' : _dbStatus;
 
   String _formatDate(String iso) {
     try {
       final date = DateTime.parse(iso);
-      final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      final months = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
+      ];
       return '${date.day} ${months[date.month - 1]} ${date.year}';
     } catch (e) {
       return iso;
@@ -308,27 +341,30 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
 
   String _buildNote() {
     return '${_comboKey}-${_selectedMonths}m | '
-      'orig:${_totalFee.toInt()} | '
-      'disc:${_discountAmount.toInt()} | '
-      'admission_date:${_admissionDate.toIso8601String().split('T')[0]} | '
-      '${isRenew ? "Renewal" : "New admission"}';
+        'orig:${_totalFee.toInt()} | '
+        'disc:${_discountAmount.toInt()} | '
+        'admission_date:${_admissionDate.toIso8601String().split('T')[0]} | '
+        '${isRenew ? "Renewal" : "New admission"}';
   }
 
   String _buildNotifMessage() =>
-    'Shifts: ${_selectedShifts.join("+")} | '
-    '${_selectedMonths}m | Seat ${_allSeats.firstWhereOrNull((s) => s['id'] == _selectedSeatId)?['seat_number'] ?? ""} | '
-    'Total ₹${_totalFee.toInt()} | '
-    'Paid ₹${_amountPaid.toInt()} | '
-    '${_balanceDue > 0 ? "Pending ₹${_balanceDue.toInt()}" : "Cleared"} | '
-    'By $currentUserName ($currentRole)';
+      'Shifts: ${_selectedShifts.join("+")} | '
+      '${_selectedMonths}m | Seat ${_allSeats.firstWhereOrNull((s) => s['id'] == _selectedSeatId)?['seat_number'] ?? ""} | '
+      'Total ₹${_totalFee.toInt()} | '
+      'Paid ₹${_amountPaid.toInt()} | '
+      '${_balanceDue > 0 ? "Pending ₹${_balanceDue.toInt()}" : "Cleared"} | '
+      'By $currentUserName ($currentRole)';
 
   List<Map<String, dynamic>> get _displaySeats {
-    return List<Map<String, dynamic>>.from(_allSeats.where((seat) {
-      if (!_isGenderNeutral) {
-        if (seat['gender'] != 'neutral' && seat['gender'] != _selectedGender) return false;
-      }
-      return true; // Show all seats (occupied/free) for the selected gender
-    }));
+    return List<Map<String, dynamic>>.from(
+      _allSeats.where((seat) {
+        if (!_isGenderNeutral) {
+          if (seat['gender'] != 'neutral' && seat['gender'] != _selectedGender)
+            return false;
+        }
+        return true;
+      }),
+    );
   }
 
   bool _canSelectSeat(String seatId) {
@@ -339,8 +375,8 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
   bool _isShiftOccupied(String seatId, String shift) {
     return _occupiedShifts.any((o) {
       if (o['seat_id'] != seatId || o['shift_code'] != shift) return false;
-      // If renewal, ignore the shifts of the student being renewed
-      if (isRenew && o['student_id'] == widget.renewStudent?['id']) return false;
+      if (isRenew && o['student_id'] == widget.renewStudent?['id'])
+        return false;
       return true;
     });
   }
@@ -356,137 +392,175 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
 
   Future<void> _submitNewAdmission() async {
     setState(() => _isBusy = true);
-
     try {
       final admissionDateStr = _admissionDate.toIso8601String().split('T')[0];
       final endDateStr = _endDate.toIso8601String().split('T')[0];
       final status = _dbStatus;
 
-      // 1. Insert Student
-      final studentRes = await supabase.from('students').insert({
-        'library_id': currentLibraryId,
-        'name': _nameController.text.trim(),
-        'father_name': _fatherController.text.trim().isEmpty ? null : _fatherController.text.trim(),
-        'address': _addressController.text.trim().isEmpty ? null : _addressController.text.trim(),
-        'phone': _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
-        'gender': _selectedGender,
-        'seat_id': _selectedSeatId,
-        'locker_id': _selectedLockerId,
-        'combination_key': _comboKey,
-        'shift_display': _comboKey,
-        'selected_shifts': _selectedShifts.toList(),
-        'admission_date': admissionDateStr,
-        'end_date': endDateStr,
-        'plan_months': _selectedMonths,
-        'total_fee': _totalFee,
-        'monthly_rate': _totalFee / _selectedMonths,
-        'amount_paid': _amountPaid,
-        'discount_amount': _discountAmount,
-        'payment_status': status,
-      }).select().single();
+      final studentRes = await supabase
+          .from('students')
+          .insert({
+            'library_id': currentLibraryId,
+            'name': _nameController.text.trim(),
+            'father_name': _fatherController.text.trim().isEmpty
+                ? null
+                : _fatherController.text.trim(),
+            'address': _addressController.text.trim().isEmpty
+                ? null
+                : _addressController.text.trim(),
+            'phone': _phoneController.text.trim().isEmpty
+                ? null
+                : _phoneController.text.trim(),
+            'gender': _selectedGender,
+            'seat_id': _selectedSeatId,
+            'locker_id': _selectedLockerId,
+            'combination_key': _comboKey,
+            'shift_display': _comboKey,
+            'selected_shifts': _selectedShifts.toList(),
+            'admission_date': admissionDateStr,
+            'end_date': endDateStr,
+            'plan_months': _selectedMonths,
+            'total_fee': _totalFee,
+            'monthly_rate': _totalFee / _selectedMonths,
+            'amount_paid': _amountPaid,
+            'discount_amount': _discountAmount,
+            'payment_status': status,
+          })
+          .select()
+          .single();
 
       await CacheService.onStudentAdded(studentRes);
-
       final studentId = studentRes['id'];
 
-      // 2. Insert Shifts
-      await supabase.from('student_seat_shifts').insert(
-        _selectedShifts.map((s) => {
-          'student_id': studentId,
-          'seat_id': _selectedSeatId,
-          'shift_code': s,
-          'end_date': endDateStr,
-        }).toList()
-      );
+      await supabase
+          .from('student_seat_shifts')
+          .insert(
+            _selectedShifts
+                .map(
+                  (s) => {
+                    'student_id': studentId,
+                    'seat_id': _selectedSeatId,
+                    'shift_code': s,
+                    'end_date': endDateStr,
+                  },
+                )
+                .toList(),
+          );
 
       await CacheService.onSeatShiftsAdded(
-        _selectedShifts.map((s) => {
-          'student_id': studentId,
-          'seat_id': _selectedSeatId,
-          'shift_code': s,
-          'end_date': endDateStr,
-        }).toList()
+        _selectedShifts
+            .map(
+              (s) => {
+                'student_id': studentId,
+                'seat_id': _selectedSeatId,
+                'shift_code': s,
+                'end_date': endDateStr,
+              },
+            )
+            .toList(),
       );
 
-      // 3. Update Locker
       if (_selectedLockerId != null) {
-        await supabase.from('lockers').update({'status': 'occupied'}).eq('id', _selectedLockerId!);
+        await supabase
+            .from('lockers')
+            .update({'status': 'occupied'})
+            .eq('id', _selectedLockerId!);
         await CacheService.onLockerUpdated(_selectedLockerId!, 'occupied');
       }
 
-      // 4. Payment Record
       if (_amountPaid > 0) {
-        final paymentRes = await supabase.from('payment_records').insert({
-          'library_id': currentLibraryId,
-          'student_id': studentId,
-          'amount': _amountPaid,
-          'payment_method': _paymentMode,
-          'type': 'admission',
-          'received_by': supabase.auth.currentUser!.id,
-        }).select().single();
-
+        final paymentRes = await supabase
+            .from('payment_records')
+            .insert({
+              'library_id': currentLibraryId,
+              'student_id': studentId,
+              'amount': _amountPaid,
+              'payment_method': _paymentMode,
+              'type': 'admission',
+              'received_by': supabase.auth.currentUser!.id,
+            })
+            .select()
+            .single();
         await CacheService.onPaymentRecordAdded(paymentRes);
       }
 
-      // 5. Financial Events
       String eventType = 'ADMISSION_PENDING';
-      if (status == 'paid') eventType = 'ADMISSION_FULL';
-      else if (status == 'partial') eventType = 'ADMISSION_PARTIAL';
-      else if (status == 'discounted') eventType = 'ADMISSION_PENDING';
+      if (status == 'paid')
+        eventType = 'ADMISSION_FULL';
+      else if (status == 'partial')
+        eventType = 'ADMISSION_PARTIAL';
 
-      final eventRes = await supabase.from('financial_events').insert({
-        'library_id': currentLibraryId,
-        'student_id': studentId,
-        'student_name': _nameController.text,
-        'event_type': eventType,
-        'amount': _amountPaid,
-        'pending_amount': _balanceDue,
-        'payment_mode': _paymentMode,
-        'actor_role': currentRole,
-        'actor_name': currentUserName,
-        'note': _buildNote(),
-      }).select().single();
-
+      final eventRes = await supabase
+          .from('financial_events')
+          .insert({
+            'library_id': currentLibraryId,
+            'student_id': studentId,
+            'student_name': _nameController.text,
+            'event_type': eventType,
+            'amount': _amountPaid,
+            'pending_amount': _balanceDue,
+            'payment_mode': _paymentMode,
+            'actor_role': currentRole,
+            'actor_name': currentUserName,
+            'note': _buildNote(),
+          })
+          .select()
+          .single();
       await CacheService.onFinancialEventAdded(eventRes);
 
-      // Discount Event
       if (_discountAmount > 0) {
-        final discRes = await supabase.from('financial_events').insert({
-          'library_id': currentLibraryId,
-          'student_id': studentId,
-          'student_name': _nameController.text,
-          'event_type': 'DISCOUNT_APPLIED',
-          'amount': _discountAmount,
-          'pending_amount': _balanceDue,
-          'payment_mode': _paymentMode,
-          'actor_role': currentRole,
-          'actor_name': currentUserName,
-          'note': 'Discount ₹${_discountAmount.toInt()} applied at admission',
-        }).select().single();
-
+        final discRes = await supabase
+            .from('financial_events')
+            .insert({
+              'library_id': currentLibraryId,
+              'student_id': studentId,
+              'student_name': _nameController.text,
+              'event_type': 'DISCOUNT_APPLIED',
+              'amount': _discountAmount,
+              'pending_amount': _balanceDue,
+              'payment_mode': _paymentMode,
+              'actor_role': currentRole,
+              'actor_name': currentUserName,
+              'note':
+                  'Discount ₹${_discountAmount.toInt()} applied at admission',
+            })
+            .select()
+            .single();
         await CacheService.onFinancialEventAdded(discRes);
       }
 
-      // 6. Notification
-      final notifRes = await supabase.from('notifications').insert({
-        'library_id': currentLibraryId,
-        'student_id': studentId,
-        'type': 'new_admission',
-        'title': isRenew ? 'Renewal — ${_nameController.text}' : 'New Admission — ${_nameController.text}',
-        'message': _buildNotifMessage(),
-        'is_read': false,
-      }).select().single();
-
+      final notifRes = await supabase
+          .from('notifications')
+          .insert({
+            'library_id': currentLibraryId,
+            'student_id': studentId,
+            'type': 'new_admission',
+            'title': 'New Admission — ${_nameController.text}',
+            'message': _buildNotifMessage(),
+            'is_read': false,
+          })
+          .select()
+          .single();
       await CacheService.onNotificationAdded(notifRes);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Student admitted successfully!'), backgroundColor: Colors.green));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Student admitted successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
         Navigator.pop(context, true);
       }
     } catch (e) {
       debugPrint('Submission error: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to admit student: $e'), backgroundColor: Colors.red));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to admit student: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _isBusy = false);
@@ -501,112 +575,141 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
       final endDateStr = _endDate.toIso8601String().split('T')[0];
       final status = _dbStatus;
 
-      // 1. UPDATE student
       final updated = await supabase
-        .from('students')
-        .update({
-          'seat_id': _selectedSeatId,
-          'combination_key': _comboKey,
-          'shift_display': _comboKey,
-          'selected_shifts': _selectedShifts,
-          'admission_date': admissionDateStr,
-          'end_date': endDateStr,
-          'plan_months': _selectedMonths,
-          'total_fee': _totalFee,
-          'monthly_rate': _totalFee / _selectedMonths,
-          'amount_paid': _amountPaid,
-          'discount_amount': _discountAmount,
-          'payment_status': status,
-          'is_deleted': false,
-        })
-        .eq('id', studentId)
-        .select()
-        .single();
+          .from('students')
+          .update({
+            'seat_id': _selectedSeatId,
+            'combination_key': _comboKey,
+            'shift_display': _comboKey,
+            'selected_shifts': _selectedShifts,
+            'admission_date': admissionDateStr,
+            'end_date': endDateStr,
+            'plan_months': _selectedMonths,
+            'total_fee': _totalFee,
+            'monthly_rate': _totalFee / _selectedMonths,
+            'amount_paid': _amountPaid,
+            'discount_amount': _discountAmount,
+            'payment_status': status,
+            'is_deleted': false,
+          })
+          .eq('id', studentId)
+          .select()
+          .single();
 
-      // 2. REPLACE seat shifts
-      await supabase.from('student_seat_shifts').delete().eq('student_id', studentId);
-      
-      final newShifts = _selectedShifts.map((s) => {
-        'student_id': studentId,
-        'seat_id': _selectedSeatId,
-        'shift_code': s,
-        'end_date': endDateStr,
-      }).toList();
+      await supabase
+          .from('student_seat_shifts')
+          .delete()
+          .eq('student_id', studentId);
+
+      final newShifts = _selectedShifts
+          .map(
+            (s) => {
+              'student_id': studentId,
+              'seat_id': _selectedSeatId,
+              'shift_code': s,
+              'end_date': endDateStr,
+            },
+          )
+          .toList();
       await supabase.from('student_seat_shifts').insert(newShifts);
 
-      // 3. Payment record
       if (_amountPaid > 0) {
-        final paymentRes = await supabase.from('payment_records').insert({
-          'library_id': currentLibraryId,
-          'student_id': studentId,
-          'amount': _amountPaid,
-          'payment_method': _paymentMode,
-          'type': 'renewal',
-          'received_by': supabase.auth.currentUser!.id,
-        }).select().single();
+        final paymentRes = await supabase
+            .from('payment_records')
+            .insert({
+              'library_id': currentLibraryId,
+              'student_id': studentId,
+              'amount': _amountPaid,
+              'payment_method': _paymentMode,
+              'type': 'renewal',
+              'received_by': supabase.auth.currentUser!.id,
+            })
+            .select()
+            .single();
         await CacheService.onPaymentRecordAdded(paymentRes);
       }
 
-      // 4. Financial events
       String eventType = 'ADMISSION_PENDING';
-      if (status == 'paid') eventType = 'ADMISSION_FULL';
-      else if (status == 'partial') eventType = 'ADMISSION_PARTIAL';
-      else if (status == 'discounted') eventType = 'ADMISSION_PENDING';
+      if (status == 'paid')
+        eventType = 'ADMISSION_FULL';
+      else if (status == 'partial')
+        eventType = 'ADMISSION_PARTIAL';
 
-      final eventRes = await supabase.from('financial_events').insert({
-        'library_id': currentLibraryId,
-        'student_id': studentId,
-        'student_name': _nameController.text,
-        'event_type': eventType,
-        'amount': _amountPaid,
-        'pending_amount': _balanceDue,
-        'payment_mode': _paymentMode,
-        'actor_role': currentRole,
-        'actor_name': currentUserName,
-        'note': _buildNote(),
-      }).select().single();
+      final eventRes = await supabase
+          .from('financial_events')
+          .insert({
+            'library_id': currentLibraryId,
+            'student_id': studentId,
+            'student_name': _nameController.text,
+            'event_type': eventType,
+            'amount': _amountPaid,
+            'pending_amount': _balanceDue,
+            'payment_mode': _paymentMode,
+            'actor_role': currentRole,
+            'actor_name': currentUserName,
+            'note': _buildNote(),
+          })
+          .select()
+          .single();
       await CacheService.onFinancialEventAdded(eventRes);
 
       if (_discountAmount > 0) {
-        final discRes = await supabase.from('financial_events').insert({
-          'library_id': currentLibraryId,
-          'student_id': studentId,
-          'student_name': _nameController.text,
-          'event_type': 'DISCOUNT_APPLIED',
-          'amount': _discountAmount,
-          'pending_amount': _balanceDue,
-          'payment_mode': _paymentMode,
-          'actor_role': currentRole,
-          'actor_name': currentUserName,
-          'note': 'Discount ₹${_discountAmount.toInt()} applied at renewal | admission_date:$admissionDateStr',
-        }).select().single();
+        final discRes = await supabase
+            .from('financial_events')
+            .insert({
+              'library_id': currentLibraryId,
+              'student_id': studentId,
+              'student_name': _nameController.text,
+              'event_type': 'DISCOUNT_APPLIED',
+              'amount': _discountAmount,
+              'pending_amount': _balanceDue,
+              'payment_mode': _paymentMode,
+              'actor_role': currentRole,
+              'actor_name': currentUserName,
+              'note':
+                  'Discount ₹${_discountAmount.toInt()} applied at renewal | admission_date:$admissionDateStr',
+            })
+            .select()
+            .single();
         await CacheService.onFinancialEventAdded(discRes);
       }
 
-      // 5. Notification
-      final notifRes = await supabase.from('notifications').insert({
-        'library_id': currentLibraryId,
-        'student_id': studentId,
-        'type': 'student_renewed',
-        'title': 'Renewal — ${_nameController.text}',
-        'message': _buildNotifMessage(),
-        'is_read': false,
-      }).select().single();
+      final notifRes = await supabase
+          .from('notifications')
+          .insert({
+            'library_id': currentLibraryId,
+            'student_id': studentId,
+            'type': 'student_renewed',
+            'title': 'Renewal — ${_nameController.text}',
+            'message': _buildNotifMessage(),
+            'is_read': false,
+          })
+          .select()
+          .single();
       await CacheService.onNotificationAdded(notifRes);
 
-      // 6. Cache Updates
       await CacheService.onStudentUpdated(updated);
       await CacheService.onSeatShiftsDeleted(studentId);
       await CacheService.onSeatShiftsAdded(newShifts);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Admission renewed successfully!'), backgroundColor: Colors.green));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Admission renewed successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
         Navigator.pop(context, true);
       }
     } catch (e) {
       debugPrint('Renewal error: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to renew admission: $e'), backgroundColor: Colors.red));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to renew admission: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _isBusy = false);
@@ -619,7 +722,14 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
       backgroundColor: const Color(0xFF0F172A),
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: Text(isRenew ? 'Renew Admission' : 'New Admission', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w800, fontSize: 18, color: Colors.white)),
+        title: Text(
+          isRenew ? 'Renew Admission' : 'New Admission',
+          style: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.w800,
+            fontSize: 18,
+            color: Colors.white,
+          ),
+        ),
         backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
@@ -629,7 +739,9 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
           _buildAnimatedBackground(),
           SafeArea(
             child: _isDataLoading
-                ? const Center(child: CircularProgressIndicator(color: primaryColor))
+                ? const Center(
+                    child: CircularProgressIndicator(color: primaryColor),
+                  )
                 : Column(
                     children: [
                       _buildProgressHeader(),
@@ -666,23 +778,43 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
   }
 
   Widget _stepDot(int step, bool active, {bool disabled = false}) {
-    final glow = active ? [BoxShadow(color: const Color(0xFF6366F1).withOpacity(0.5), blurRadius: 12, spreadRadius: 2)] : null;
+    final glow = active
+        ? [
+            BoxShadow(
+              color: const Color(0xFF6366F1).withOpacity(0.5),
+              blurRadius: 12,
+              spreadRadius: 2,
+            ),
+          ]
+        : null;
     return Container(
       width: 32,
       height: 32,
       decoration: BoxDecoration(
-        color: disabled 
+        color: disabled
             ? Colors.white.withOpacity(0.05)
-            : active ? const Color(0xFF6366F1) : Colors.white.withOpacity(0.1),
+            : active
+            ? const Color(0xFF6366F1)
+            : Colors.white.withOpacity(0.1),
         shape: BoxShape.circle,
         boxShadow: glow,
-        border: Border.all(color: disabled ? Colors.transparent : active ? const Color(0xFF818CF8) : Colors.white.withOpacity(0.2)),
+        border: Border.all(
+          color: disabled
+              ? Colors.transparent
+              : active
+              ? const Color(0xFF818CF8)
+              : Colors.white.withOpacity(0.2),
+        ),
       ),
       child: Center(
         child: Text(
           '$step',
           style: TextStyle(
-            color: disabled ? Colors.white24 : active ? Colors.white : Colors.white54,
+            color: disabled
+                ? Colors.white24
+                : active
+                ? Colors.white
+                : Colors.white54,
             fontSize: 13,
             fontWeight: FontWeight.bold,
           ),
@@ -716,12 +848,16 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
           child: Builder(
             builder: (ctx) {
               switch (_currentStep) {
-                case 0: return _buildStep1();
-                case 1: return _buildStep2();
-                case 2: return _buildStep3();
-                default: return const SizedBox();
+                case 0:
+                  return _buildStep1();
+                case 1:
+                  return _buildStep2();
+                case 2:
+                  return _buildStep3();
+                default:
+                  return const SizedBox();
               }
-            }
+            },
           ),
         ),
       ),
@@ -733,11 +869,29 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _infoField('Student Name*', _nameController, Icons.person_outline),
-        _infoField('Father Name', _fatherController, Icons.family_restroom_outlined),
+        _infoField(
+          'Father Name',
+          _fatherController,
+          Icons.family_restroom_outlined,
+        ),
         _infoField('Address', _addressController, Icons.location_on_outlined),
-        _infoField('Phone*', _phoneController, Icons.phone_outlined, keyboard: TextInputType.phone, maxLength: 10),
+        _infoField(
+          'Phone*',
+          _phoneController,
+          Icons.phone_outlined,
+          keyboard: TextInputType.phone,
+          maxLength: 10,
+        ),
         const SizedBox(height: 24),
-        Text('GENDER*', style: GoogleFonts.plusJakartaSans(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white54, letterSpacing: 1)),
+        Text(
+          'GENDER*',
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+            color: Colors.white54,
+            letterSpacing: 1,
+          ),
+        ),
         const SizedBox(height: 12),
         Row(
           children: [
@@ -751,25 +905,52 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
   }
 
   Widget _buildStep2() {
-    final bool isEligibleForLocker = _lockerPolicy != null && 
-                                   (List<String>.from(_lockerPolicy!['eligible_combos'] ?? []).contains(_comboKey));
+    final bool isEligibleForLocker =
+        _lockerPolicy != null &&
+        (List<String>.from(
+          _lockerPolicy!['eligible_combos'] ?? [],
+        ).contains(_comboKey));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('SELECT SHIFTS*', style: GoogleFonts.plusJakartaSans(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white54, letterSpacing: 1)),
+        Text(
+          'SELECT SHIFTS*',
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+            color: Colors.white54,
+            letterSpacing: 1,
+          ),
+        ),
         const SizedBox(height: 12),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: ['M', 'A', 'E', 'N'].map((s) => _shiftChip(s)).toList(),
         ),
         const SizedBox(height: 32),
-        Text('SEAT ASSIGNMENT*', style: GoogleFonts.plusJakartaSans(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white54, letterSpacing: 1)),
+        Text(
+          'SEAT ASSIGNMENT*',
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+            color: Colors.white54,
+            letterSpacing: 1,
+          ),
+        ),
         const SizedBox(height: 12),
         _buildSeatSelector(),
         if (isEligibleForLocker) ...[
           const SizedBox(height: 32),
-          Text('LOCKER ASSIGNMENT', style: GoogleFonts.plusJakartaSans(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white54, letterSpacing: 1)),
+          Text(
+            'LOCKER ASSIGNMENT',
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              color: Colors.white54,
+              letterSpacing: 1,
+            ),
+          ),
           const SizedBox(height: 12),
           _buildLockerSelector(),
         ],
@@ -778,61 +959,174 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
   }
 
   Widget _buildStep3() {
-    final availableMonths = _comboPricing.where((c) => c['combination_key'] == _comboKey).map<int>((c) => c['months'] as int).toSet().toList()..sort();
+    // Available months from combo pricing for this combo
+    final availableMonths =
+        _comboPricing
+            .where((c) => c['combination_key'] == _comboKey)
+            .map<int>((c) => c['months'] as int)
+            .toSet()
+            .toList()
+          ..sort();
+
+    // Auto-select first month if current selection not available
+    if (availableMonths.isNotEmpty &&
+        !availableMonths.contains(_selectedMonths)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        setState(() {
+          _selectedMonths = availableMonths.first;
+          _updatePricing();
+          _recalcEndDate();
+        });
+      });
+    }
+
     _calculateTotal();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('PLAN DURATION*', style: GoogleFonts.plusJakartaSans(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white54, letterSpacing: 1)),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: availableMonths.map((m) => _monthChip(m)).toList(),
+        Text(
+          'PLAN DURATION*',
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+            color: Colors.white54,
+            letterSpacing: 1,
+          ),
         ),
+        const SizedBox(height: 12),
+        availableMonths.isEmpty
+            ? Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.red.withOpacity(0.3)),
+                ),
+                child: Text(
+                  'No plans configured for combo "$_comboKey". Please add plans in Settings → Plans & Pricing.',
+                  style: GoogleFonts.plusJakartaSans(
+                    color: Colors.red.shade300,
+                    fontSize: 13,
+                  ),
+                ),
+              )
+            : Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: availableMonths.map((m) => _monthChip(m)).toList(),
+              ),
         const SizedBox(height: 32),
-        Text('ADMISSION DATE*', style: GoogleFonts.plusJakartaSans(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white54, letterSpacing: 1)),
+        Text(
+          'ADMISSION DATE*',
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+            color: Colors.white54,
+            letterSpacing: 1,
+          ),
+        ),
         const SizedBox(height: 12),
         GestureDetector(
           onTap: _pickAdmissionDate,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(border: Border.all(color: Colors.white.withOpacity(0.08)), borderRadius: BorderRadius.circular(12), color: Colors.white.withOpacity(0.04)),
-            child: Row(children: [
-              Icon(Icons.calendar_today_outlined, size: 18, color: const Color(0xFF6366F1)),
-              const SizedBox(width: 10),
-              Text(_formatDate(_admissionDate.toIso8601String()), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white)),
-              const Spacer(),
-              const Text('Change', style: TextStyle(fontSize: 12, color: Color(0xFF818CF8), fontWeight: FontWeight.bold)),
-            ]),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.white.withOpacity(0.08)),
+              borderRadius: BorderRadius.circular(12),
+              color: Colors.white.withOpacity(0.04),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.calendar_today_outlined,
+                  size: 18,
+                  color: Color(0xFF6366F1),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  _formatDate(_admissionDate.toIso8601String()),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+                const Spacer(),
+                const Text(
+                  'Change',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF818CF8),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
         const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(color: const Color(0xFF6366F1).withOpacity(0.1), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFF6366F1).withOpacity(0.2))),
+          decoration: BoxDecoration(
+            color: const Color(0xFF6366F1).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFF6366F1).withOpacity(0.2)),
+          ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('Admission', style: TextStyle(fontSize: 11, color: Colors.white54)),
-                Text(_formatDate(_admissionDate.toIso8601String()), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white)),
-              ]),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Admission',
+                    style: TextStyle(fontSize: 11, color: Colors.white54),
+                  ),
+                  Text(
+                    _formatDate(_admissionDate.toIso8601String()),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
               const Icon(Icons.arrow_forward, size: 16, color: Colors.white38),
-              Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                const Text('End Date', style: TextStyle(fontSize: 11, color: Colors.white54)),
-                Text(_formatDate(_endDate.toIso8601String()), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF818CF8))),
-              ]),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  const Text(
+                    'End Date',
+                    style: TextStyle(fontSize: 11, color: Colors.white54),
+                  ),
+                  Text(
+                    _formatDate(_endDate.toIso8601String()),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF818CF8),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
         ),
         const SizedBox(height: 32),
-        Text('FEE SUMMARY', style: GoogleFonts.plusJakartaSans(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white54, letterSpacing: 1)),
+        Text(
+          'FEE SUMMARY',
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+            color: Colors.white54,
+            letterSpacing: 1,
+          ),
+        ),
         const SizedBox(height: 12),
         _buildFeeCard(),
         const SizedBox(height: 32),
-        
         Row(
           children: [
             Checkbox(
@@ -849,56 +1143,95 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
               activeColor: const Color(0xFF6366F1),
               side: BorderSide(color: Colors.white.withOpacity(0.3)),
             ),
-            Text('ADD DISCOUNT', style: GoogleFonts.plusJakartaSans(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF818CF8))),
+            Text(
+              'ADD DISCOUNT',
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: const Color(0xFF818CF8),
+              ),
+            ),
           ],
         ),
-        
         if (_hasDiscount) ...[
           const SizedBox(height: 8),
-          _infoField('DISCOUNT (₹)', _discountController, Icons.tag_rounded, keyboard: TextInputType.number, onChanged: (v) {
-            final val = double.tryParse(v) ?? 0;
-            if (val > _totalFee) {
-              _discountController.text = _totalFee.toStringAsFixed(0);
-              _discountController.selection = TextSelection.fromPosition(TextPosition(offset: _discountController.text.length));
-            }
-            setState(() {
-              _discountAmount = double.tryParse(_discountController.text) ?? 0;
-              if (_isFullPaid) _amountPaid = _effectiveAmount;
-              else if (_isFullPending) _amountPaid = 0;
-              _amountPaidController.text = _amountPaid.toStringAsFixed(0);
-            });
-          }),
+          _infoField(
+            'DISCOUNT (₹)',
+            _discountController,
+            Icons.tag_rounded,
+            keyboard: TextInputType.number,
+            onChanged: (v) {
+              final val = double.tryParse(v) ?? 0;
+              if (val > _totalFee) {
+                _discountController.text = _totalFee.toStringAsFixed(0);
+                _discountController.selection = TextSelection.fromPosition(
+                  TextPosition(offset: _discountController.text.length),
+                );
+              }
+              setState(() {
+                _discountAmount =
+                    double.tryParse(_discountController.text) ?? 0;
+                if (_isFullPaid)
+                  _amountPaid = _effectiveAmount;
+                else if (_isFullPending)
+                  _amountPaid = 0;
+                _amountPaidController.text = _amountPaid.toStringAsFixed(0);
+              });
+            },
+          ),
           Container(
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: const Color(0xFF10B981).withOpacity(0.1), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFF10B981).withOpacity(0.2))),
+            decoration: BoxDecoration(
+              color: const Color(0xFF10B981).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: const Color(0xFF10B981).withOpacity(0.2),
+              ),
+            ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('EFFECTIVE AMOUNT', style: GoogleFonts.plusJakartaSans(fontSize: 11, fontWeight: FontWeight.w600, color: const Color(0xFF34D399))),
-                Text('₹${_effectiveAmount.toInt()}', style: GoogleFonts.plusJakartaSans(fontSize: 14, fontWeight: FontWeight.w800, color: const Color(0xFF10B981))),
+                Text(
+                  'EFFECTIVE AMOUNT',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF34D399),
+                  ),
+                ),
+                Text(
+                  '₹${_effectiveAmount.toInt()}',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF10B981),
+                  ),
+                ),
               ],
             ),
           ),
           const SizedBox(height: 24),
         ],
-
-        // Paid Field
         _infoField(
-          'AMOUNT PAID (₹)', 
-          _amountPaidController, 
-          Icons.currency_rupee_rounded, 
-          keyboard: TextInputType.number, 
+          'AMOUNT PAID (₹)',
+          _amountPaidController,
+          Icons.currency_rupee_rounded,
+          keyboard: TextInputType.number,
           enabled: !_isFullPaid && !_isFullPending,
           onChanged: (v) {
             final val = double.tryParse(v) ?? 0;
             if (val > _effectiveAmount) {
               _amountPaidController.text = _effectiveAmount.toStringAsFixed(0);
-              _amountPaidController.selection = TextSelection.fromPosition(TextPosition(offset: _amountPaidController.text.length));
+              _amountPaidController.selection = TextSelection.fromPosition(
+                TextPosition(offset: _amountPaidController.text.length),
+              );
             }
-            setState(() => _amountPaid = double.tryParse(_amountPaidController.text) ?? 0);
-          }
+            setState(
+              () => _amountPaid =
+                  double.tryParse(_amountPaidController.text) ?? 0,
+            );
+          },
         ),
-        
         Row(
           children: [
             Expanded(
@@ -917,7 +1250,14 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
                     activeColor: const Color(0xFFEF4444),
                     side: BorderSide(color: Colors.white.withOpacity(0.3)),
                   ),
-                  Text('FULL PENDING', style: GoogleFonts.plusJakartaSans(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white)),
+                  Text(
+                    'FULL PENDING',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -931,53 +1271,109 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
                       if (_isFullPaid) {
                         _isFullPending = false;
                         _amountPaid = _effectiveAmount;
-                        _amountPaidController.text = _amountPaid.toStringAsFixed(0);
+                        _amountPaidController.text = _amountPaid
+                            .toStringAsFixed(0);
                       }
                     }),
                     activeColor: const Color(0xFF10B981),
                     side: BorderSide(color: Colors.white.withOpacity(0.3)),
                   ),
-                  Text('FULL PAID', style: GoogleFonts.plusJakartaSans(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white)),
+                  Text(
+                    'FULL PAID',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
                 ],
               ),
             ),
           ],
         ),
-        
-        // Status & Balance Summary
         const SizedBox(height: 24),
         Container(
           padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(color: Colors.white.withOpacity(0.02), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white.withOpacity(0.08))),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.02),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.white.withOpacity(0.08)),
+          ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('STATUS', style: GoogleFonts.plusJakartaSans(fontSize: 9, fontWeight: FontWeight.w800, color: Colors.white54)),
+                  Text(
+                    'STATUS',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white54,
+                    ),
+                  ),
                   const SizedBox(height: 4),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(color: _statusColor().withOpacity(0.15), borderRadius: BorderRadius.circular(12), border: Border.all(color: _statusColor().withOpacity(0.3))),
-                    child: Text(_displayStatus.toUpperCase(), style: GoogleFonts.plusJakartaSans(fontSize: 10, fontWeight: FontWeight.w900, color: _statusColor())),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _statusColor().withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: _statusColor().withOpacity(0.3),
+                      ),
+                    ),
+                    child: Text(
+                      _displayStatus.toUpperCase(),
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        color: _statusColor(),
+                      ),
+                    ),
                   ),
                 ],
               ),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text('BALANCE DUE', style: GoogleFonts.plusJakartaSans(fontSize: 9, fontWeight: FontWeight.w800, color: Colors.white54)),
+                  Text(
+                    'BALANCE DUE',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white54,
+                    ),
+                  ),
                   const SizedBox(height: 4),
-                  Text('₹${_balanceDue.toInt()}', style: GoogleFonts.plusJakartaSans(fontSize: 18, fontWeight: FontWeight.w900, color: _balanceDue > 0 ? const Color(0xFFEF4444) : const Color(0xFF10B981))),
+                  Text(
+                    '₹${_balanceDue.toInt()}',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      color: _balanceDue > 0
+                          ? const Color(0xFFEF4444)
+                          : const Color(0xFF10B981),
+                    ),
+                  ),
                 ],
               ),
             ],
           ),
         ),
-
         const SizedBox(height: 32),
-        Text('PAYMENT MODE', style: GoogleFonts.plusJakartaSans(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white54, letterSpacing: 0.5)),
+        Text(
+          'PAYMENT MODE',
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+            color: Colors.white54,
+            letterSpacing: 0.5,
+          ),
+        ),
         const SizedBox(height: 12),
         _buildPaymentModeToggle(),
       ],
@@ -986,21 +1382,42 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
 
   Color _statusColor() {
     switch (_dbStatus) {
-      case 'paid': return const Color(0xFF10B981);
-      case 'discounted': return const Color(0xFF8B5CF6);
-      case 'partial': return const Color(0xFF3B82F6);
-      case 'pending': return const Color(0xFFEF4444);
-      default: return Colors.white54;
+      case 'paid':
+        return const Color(0xFF10B981);
+      case 'discounted':
+        return const Color(0xFF8B5CF6);
+      case 'partial':
+        return const Color(0xFF3B82F6);
+      case 'pending':
+        return const Color(0xFFEF4444);
+      default:
+        return Colors.white54;
     }
   }
 
-  Widget _infoField(String label, TextEditingController ctrl, IconData icon, {TextInputType keyboard = TextInputType.text, int? maxLength, bool enabled = true, Function(String)? onChanged}) {
+  Widget _infoField(
+    String label,
+    TextEditingController ctrl,
+    IconData icon, {
+    TextInputType keyboard = TextInputType.text,
+    int? maxLength,
+    bool enabled = true,
+    Function(String)? onChanged,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: GoogleFonts.plusJakartaSans(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white54, letterSpacing: 0.5)),
+          Text(
+            label,
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              color: Colors.white54,
+              letterSpacing: 0.5,
+            ),
+          ),
           const SizedBox(height: 8),
           TextField(
             controller: ctrl,
@@ -1008,15 +1425,33 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
             maxLength: maxLength,
             onChanged: onChanged,
             enabled: enabled,
-            style: GoogleFonts.plusJakartaSans(fontSize: 15, fontWeight: FontWeight.w600, color: enabled ? Colors.white : Colors.white38),
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: enabled ? Colors.white : Colors.white38,
+            ),
             decoration: InputDecoration(
               prefixIcon: Icon(icon, size: 20, color: Colors.white54),
               filled: true,
-              fillColor: enabled ? Colors.white.withOpacity(0.04) : Colors.white.withOpacity(0.02),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.white.withOpacity(0.08))),
-              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.white.withOpacity(0.08))),
-              disabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.white.withOpacity(0.02))),
-              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF6366F1))),
+              fillColor: enabled
+                  ? Colors.white.withOpacity(0.04)
+                  : Colors.white.withOpacity(0.02),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.white.withOpacity(0.08)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.white.withOpacity(0.08)),
+              ),
+              disabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.white.withOpacity(0.02)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFF6366F1)),
+              ),
               contentPadding: const EdgeInsets.symmetric(vertical: 16),
               counterText: '',
             ),
@@ -1034,17 +1469,41 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: active ? const Color(0xFF6366F1).withOpacity(0.2) : Colors.white.withOpacity(0.04),
+            color: active
+                ? const Color(0xFF6366F1).withOpacity(0.2)
+                : Colors.white.withOpacity(0.04),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: active ? const Color(0xFF818CF8) : Colors.white.withOpacity(0.08)),
-            boxShadow: active ? [BoxShadow(color: const Color(0xFF6366F1).withOpacity(0.3), blurRadius: 12)] : null,
+            border: Border.all(
+              color: active
+                  ? const Color(0xFF818CF8)
+                  : Colors.white.withOpacity(0.08),
+            ),
+            boxShadow: active
+                ? [
+                    BoxShadow(
+                      color: const Color(0xFF6366F1).withOpacity(0.3),
+                      blurRadius: 12,
+                    ),
+                  ]
+                : null,
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, color: active ? Colors.white : Colors.white54, size: 20),
+              Icon(
+                icon,
+                color: active ? Colors.white : Colors.white54,
+                size: 20,
+              ),
               const SizedBox(width: 8),
-              Text(g.toUpperCase(), style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 13, color: active ? Colors.white : Colors.white54)),
+              Text(
+                g.toUpperCase(),
+                style: GoogleFonts.plusJakartaSans(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: active ? Colors.white : Colors.white54,
+                ),
+              ),
             ],
           ),
         ),
@@ -1057,15 +1516,37 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
     return GestureDetector(
       onTap: () => _onShiftToggle(s),
       child: Container(
-        width: 65, height: 65,
+        width: 65,
+        height: 65,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: active ? const Color(0xFF6366F1).withOpacity(0.2) : Colors.white.withOpacity(0.04),
+          color: active
+              ? const Color(0xFF6366F1).withOpacity(0.2)
+              : Colors.white.withOpacity(0.04),
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: active ? const Color(0xFF818CF8) : Colors.white.withOpacity(0.08)),
-          boxShadow: active ? [BoxShadow(color: const Color(0xFF6366F1).withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4))] : null,
+          border: Border.all(
+            color: active
+                ? const Color(0xFF818CF8)
+                : Colors.white.withOpacity(0.08),
+          ),
+          boxShadow: active
+              ? [
+                  BoxShadow(
+                    color: const Color(0xFF6366F1).withOpacity(0.3),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : null,
         ),
-        child: Text(s, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: active ? Colors.white : Colors.white54)),
+        child: Text(
+          s,
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w900,
+            color: active ? Colors.white : Colors.white54,
+          ),
+        ),
       ),
     );
   }
@@ -1076,19 +1557,44 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
       onTap: () => _showSeatPicker(),
       child: Container(
         padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(color: Colors.white.withOpacity(0.04), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white.withOpacity(0.08))),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.04),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withOpacity(0.08)),
+        ),
         child: Row(
           children: [
-            const Icon(Icons.airline_seat_recline_normal_rounded, color: Colors.white54),
+            const Icon(
+              Icons.airline_seat_recline_normal_rounded,
+              color: Colors.white54,
+            ),
             const SizedBox(width: 12),
-            Text(seat == null ? 'Select a seat' : 'Seat ${seat['seat_number']}', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600, color: seat == null ? Colors.white54 : Colors.white)),
+            Text(
+              seat == null ? 'Select a seat' : 'Seat ${seat['seat_number']}',
+              style: GoogleFonts.plusJakartaSans(
+                fontWeight: FontWeight.w600,
+                color: seat == null ? Colors.white54 : Colors.white,
+              ),
+            ),
             const Spacer(),
-            if (isRenew && _selectedSeatId != null && _selectedSeatId == widget.renewStudent?['seat_id'])
+            if (isRenew &&
+                _selectedSeatId != null &&
+                _selectedSeatId == widget.renewStudent?['seat_id'])
               Padding(
                 padding: const EdgeInsets.only(right: 8),
-                child: Text('prev', style: GoogleFonts.plusJakartaSans(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white38)),
+                child: Text(
+                  'prev',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white38,
+                  ),
+                ),
               ),
-            const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white54),
+            const Icon(
+              Icons.keyboard_arrow_down_rounded,
+              color: Colors.white54,
+            ),
           ],
         ),
       ),
@@ -1112,23 +1618,42 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
             child: Container(
               decoration: BoxDecoration(
                 color: const Color(0xFF0F172A).withOpacity(0.85),
-                border: Border(top: BorderSide(color: Colors.white.withOpacity(0.1))),
+                border: Border(
+                  top: BorderSide(color: Colors.white.withOpacity(0.1)),
+                ),
               ),
               child: Column(
                 children: [
                   Container(
                     margin: const EdgeInsets.symmetric(vertical: 12),
-                    width: 40, height: 4,
-                    decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white24,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text('Select Seat', style: GoogleFonts.plusJakartaSans(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white)),
-                        Text('${_displaySeats.where((s) => _canSelectSeat(s['id'])).length} available', 
-                          style: GoogleFonts.plusJakartaSans(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white54)),
+                        Text(
+                          'Select Seat',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
+                        Text(
+                          '${_displaySeats.where((s) => _canSelectSeat(s['id'])).length} available',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white54,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -1136,23 +1661,23 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
                   Expanded(
                     child: _displaySeats.isEmpty
                         ? Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.event_busy_rounded, size: 48, color: Colors.red.withOpacity(0.3)),
-                                const SizedBox(height: 16),
-                                Text(
-                                  'No seats available for the selected gender',
-                                  style: GoogleFonts.plusJakartaSans(color: Colors.white54, fontWeight: FontWeight.w600),
-                                ),
-                              ],
+                            child: Text(
+                              'No seats available for the selected gender',
+                              style: GoogleFonts.plusJakartaSans(
+                                color: Colors.white54,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           )
                         : ListView.separated(
                             controller: scrollController,
                             padding: const EdgeInsets.symmetric(vertical: 8),
                             itemCount: _displaySeats.length,
-                            separatorBuilder: (_, __) => Divider(height: 1, indent: 80, color: Colors.white.withOpacity(0.05)),
+                            separatorBuilder: (_, __) => Divider(
+                              height: 1,
+                              indent: 80,
+                              color: Colors.white.withOpacity(0.05),
+                            ),
                             itemBuilder: (_, i) => _seatTile(_displaySeats[i]),
                           ),
                   ),
@@ -1186,15 +1711,20 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
           child: Row(
             children: [
               Container(
-                width: 48, height: 48,
+                width: 48,
+                height: 48,
                 decoration: BoxDecoration(
                   color: isSelected
                       ? const Color(0xFF6366F1)
                       : canSelect
-                          ? Colors.white.withOpacity(0.08)
-                          : Colors.red.withOpacity(0.2),
+                      ? Colors.white.withOpacity(0.08)
+                      : Colors.red.withOpacity(0.2),
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: isSelected ? const Color(0xFF818CF8) : Colors.transparent),
+                  border: Border.all(
+                    color: isSelected
+                        ? const Color(0xFF818CF8)
+                        : Colors.transparent,
+                  ),
                 ),
                 child: Center(
                   child: Text(
@@ -1202,7 +1732,11 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
                     style: GoogleFonts.plusJakartaSans(
                       fontWeight: FontWeight.w800,
                       fontSize: 14,
-                      color: isSelected ? Colors.white : (canSelect ? Colors.white : const Color(0xFFFCA5A5)),
+                      color: isSelected
+                          ? Colors.white
+                          : canSelect
+                          ? Colors.white
+                          : const Color(0xFFFCA5A5),
                     ),
                   ),
                 ),
@@ -1212,27 +1746,24 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
                 children: shifts.map((s) {
                   final occupied = _isShiftOccupied(seatId, s);
                   final userSelected = _selectedShifts.contains(s);
-
                   final bgColor = occupied
                       ? Colors.red.withOpacity(0.15)
                       : userSelected
-                          ? const Color(0xFF10B981).withOpacity(0.15)
-                          : Colors.white.withOpacity(0.05);
-
+                      ? const Color(0xFF10B981).withOpacity(0.15)
+                      : Colors.white.withOpacity(0.05);
                   final borderColor = occupied
                       ? Colors.red.withOpacity(0.4)
                       : userSelected
-                          ? const Color(0xFF10B981).withOpacity(0.4)
-                          : Colors.white.withOpacity(0.1);
-
+                      ? const Color(0xFF10B981).withOpacity(0.4)
+                      : Colors.white.withOpacity(0.1);
                   final textColor = occupied
                       ? const Color(0xFFFCA5A5)
                       : userSelected
-                          ? const Color(0xFF34D399)
-                          : Colors.white54;
-
+                      ? const Color(0xFF34D399)
+                      : Colors.white54;
                   return Container(
-                    width: 36, height: 36,
+                    width: 36,
+                    height: 36,
                     margin: const EdgeInsets.only(right: 6),
                     decoration: BoxDecoration(
                       color: bgColor,
@@ -1240,7 +1771,14 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Center(
-                      child: Text(s, style: GoogleFonts.plusJakartaSans(fontSize: 12, fontWeight: FontWeight.w900, color: textColor)),
+                      child: Text(
+                        s,
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900,
+                          color: textColor,
+                        ),
+                      ),
                     ),
                   );
                 }).toList(),
@@ -1248,14 +1786,31 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
               if (isRenew && seatId == widget.renewStudent?['seat_id']) ...[
                 const Spacer(),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(color: const Color(0xFF6366F1).withOpacity(0.2), borderRadius: BorderRadius.circular(12)),
-                  child: Text('(PREVIOUS)', style: GoogleFonts.plusJakartaSans(fontSize: 9, fontWeight: FontWeight.w900, color: const Color(0xFF818CF8))),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF6366F1).withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '(PREVIOUS)',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w900,
+                      color: const Color(0xFF818CF8),
+                    ),
+                  ),
                 ),
               ],
               const Spacer(),
-              if (isSelected) 
-                const Icon(Icons.check_circle, color: Color(0xFF818CF8), size: 24)
+              if (isSelected)
+                const Icon(
+                  Icons.check_circle,
+                  color: Color(0xFF818CF8),
+                  size: 24,
+                )
               else if (!canSelect)
                 Icon(Icons.block, color: Colors.red.withOpacity(0.5), size: 18),
             ],
@@ -1266,48 +1821,115 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
   }
 
   Widget _buildLockerSelector() {
-    final available = _allLockers.where((l) => l['status'] == 'free' && (_isGenderNeutral || l['gender'] == 'neutral' || l['gender'] == _selectedGender)).toList();
+    final available = _allLockers
+        .where(
+          (l) =>
+              l['status'] == 'free' &&
+              (_isGenderNeutral ||
+                  l['gender'] == 'neutral' ||
+                  l['gender'] == _selectedGender),
+        )
+        .toList();
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(color: Colors.white.withOpacity(0.04), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white.withOpacity(0.08))),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.04),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
           value: _selectedLockerId,
           isExpanded: true,
           dropdownColor: const Color(0xFF1E293B),
           style: const TextStyle(color: Colors.white),
-          hint: const Text('Assign a locker', style: TextStyle(color: Colors.white54)),
+          hint: const Text(
+            'Assign a locker',
+            style: TextStyle(color: Colors.white54),
+          ),
           icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white54),
           onChanged: (v) => setState(() {
-             _selectedLockerId = v;
-             _calculateTotal();
+            _selectedLockerId = v;
+            _calculateTotal();
           }),
           items: [
             const DropdownMenuItem(value: null, child: Text('None')),
-            ...available.map((l) => DropdownMenuItem(value: l['id'].toString(), child: Text('Locker ${l['locker_number']}'))),
+            ...available.map(
+              (l) => DropdownMenuItem(
+                value: l['id'].toString(),
+                child: Text('Locker ${l['locker_number']}'),
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
+  // ── KEY FIX: month chip now calls _updatePricing + _recalcEndDate ──
   Widget _monthChip(int m) {
     bool active = _selectedMonths == m;
+
+    // Find fee for this month+combo
+    final plan = _comboPricing.firstWhereOrNull(
+      (p) => p['combination_key'] == _comboKey && p['months'] == m,
+    );
+    final fee = plan != null ? (plan['fee'] ?? 0).toDouble() : 0.0;
+
     return GestureDetector(
-      onTap: () => setState(() {
-        _selectedMonths = m;
-        _calculateTotal();
-      }),
+      onTap: () {
+        setState(() {
+          _selectedMonths = m;
+        });
+        _updatePricing(); // updates _baseFee from comboPricing
+        _recalcEndDate(); // updates _endDate
+      },
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         decoration: BoxDecoration(
-          color: active ? const Color(0xFF6366F1).withOpacity(0.2) : Colors.white.withOpacity(0.04), 
-          borderRadius: BorderRadius.circular(12), 
-          border: Border.all(color: active ? const Color(0xFF818CF8) : Colors.white.withOpacity(0.08)),
-          boxShadow: active ? [BoxShadow(color: const Color(0xFF6366F1).withOpacity(0.2), blurRadius: 10)] : null,
+          color: active
+              ? const Color(0xFF6366F1).withOpacity(0.2)
+              : Colors.white.withOpacity(0.04),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: active
+                ? const Color(0xFF818CF8)
+                : Colors.white.withOpacity(0.08),
+          ),
+          boxShadow: active
+              ? [
+                  BoxShadow(
+                    color: const Color(0xFF6366F1).withOpacity(0.2),
+                    blurRadius: 10,
+                  ),
+                ]
+              : null,
         ),
-        child: Text('$m MONTH${m > 1 ? 'S' : ''}', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 13, color: active ? Colors.white : Colors.white54)),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '$m MONTH${m > 1 ? 'S' : ''}',
+              style: GoogleFonts.plusJakartaSans(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: active ? Colors.white : Colors.white54,
+              ),
+            ),
+            if (fee > 0) ...[
+              const SizedBox(height: 3),
+              Text(
+                '₹${fee.toInt()}',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: active ? const Color(0xFF818CF8) : Colors.white38,
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -1317,21 +1939,36 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.03), 
+        color: Colors.white.withOpacity(0.03),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: Colors.white.withOpacity(0.1)),
         boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 20)],
       ),
       child: Column(
         children: [
-          _feeRow('Seat Plan ($_comboKey)', _baseFee),
-          if (_selectedLockerId != null) _feeRow('Locker Policy', _lockerFeeTotal),
+          _feeRow('Seat Plan ($_comboKey × ${_selectedMonths}m)', _baseFee),
+          if (_selectedLockerId != null)
+            _feeRow('Locker (${_selectedMonths}m)', _lockerFeeTotal),
           const Divider(color: Colors.white24, height: 24),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('TOTAL FEE', style: GoogleFonts.plusJakartaSans(color: Colors.white54, fontWeight: FontWeight.bold, fontSize: 12)),
-              Text('₹${_totalFee.toInt()}', style: GoogleFonts.plusJakartaSans(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 22)),
+              Text(
+                'TOTAL FEE',
+                style: GoogleFonts.plusJakartaSans(
+                  color: Colors.white54,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+              Text(
+                '₹${_totalFee.toInt()}',
+                style: GoogleFonts.plusJakartaSans(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 22,
+                ),
+              ),
             ],
           ),
         ],
@@ -1345,8 +1982,21 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: GoogleFonts.plusJakartaSans(color: Colors.white70, fontSize: 13)),
-          Text('₹${val.toInt()}', style: GoogleFonts.plusJakartaSans(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+          Text(
+            label,
+            style: GoogleFonts.plusJakartaSans(
+              color: Colors.white70,
+              fontSize: 13,
+            ),
+          ),
+          Text(
+            '₹${val.toInt()}',
+            style: GoogleFonts.plusJakartaSans(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
         ],
       ),
     );
@@ -1364,11 +2014,24 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
               height: 48,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: active ? const Color(0xFF6366F1).withOpacity(0.2) : Colors.white.withOpacity(0.04), 
-                borderRadius: BorderRadius.circular(10), 
-                border: Border.all(color: active ? const Color(0xFF818CF8) : Colors.white.withOpacity(0.08)),
+                color: active
+                    ? const Color(0xFF6366F1).withOpacity(0.2)
+                    : Colors.white.withOpacity(0.04),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: active
+                      ? const Color(0xFF818CF8)
+                      : Colors.white.withOpacity(0.08),
+                ),
               ),
-              child: Text(m.toUpperCase(), style: GoogleFonts.plusJakartaSans(fontSize: 10, fontWeight: FontWeight.bold, color: active ? Colors.white : Colors.white54)),
+              child: Text(
+                m.toUpperCase(),
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: active ? Colors.white : Colors.white54,
+                ),
+              ),
             ),
           ),
         );
@@ -1380,16 +2043,29 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
     bool isLastStep = _currentStep == 2;
     bool canProceed = false;
 
-    if (_currentStep == 0) canProceed = _nameController.text.isNotEmpty && _phoneController.text.length == 10 && _selectedGender.isNotEmpty;
+    if (_currentStep == 0) {
+      canProceed =
+          _nameController.text.isNotEmpty &&
+          _phoneController.text.length == 10 &&
+          _selectedGender.isNotEmpty;
+    }
     if (_currentStep == 1) {
-      canProceed = _selectedShifts.isNotEmpty && _selectedSeatId != null && _canSelectSeat(_selectedSeatId!);
+      canProceed =
+          _selectedShifts.isNotEmpty &&
+          _selectedSeatId != null &&
+          _canSelectSeat(_selectedSeatId!);
     }
     if (_currentStep == 2) canProceed = true;
 
     return Container(
-      padding: EdgeInsets.fromLTRB(24, 16, 24, MediaQuery.of(context).padding.bottom + 16),
+      padding: EdgeInsets.fromLTRB(
+        24,
+        16,
+        24,
+        MediaQuery.of(context).padding.bottom + 16,
+      ),
       decoration: BoxDecoration(
-        color: const Color(0xFF0F172A).withOpacity(0.8), 
+        color: const Color(0xFF0F172A).withOpacity(0.8),
         border: Border(top: BorderSide(color: Colors.white.withOpacity(0.05))),
       ),
       child: ClipRRect(
@@ -1402,8 +2078,10 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
                   child: OutlinedButton(
                     onPressed: () => setState(() => _currentStep--),
                     style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16), 
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       side: BorderSide(color: Colors.white.withOpacity(0.2)),
                       foregroundColor: Colors.white,
                     ),
@@ -1415,22 +2093,51 @@ class _AddStudentWizardState extends State<AddStudentWizard> with SingleTickerPr
                 flex: 2,
                 child: Container(
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(colors: [Color(0xFF6366F1), Color(0xFF4F46E5)]),
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF6366F1), Color(0xFF4F46E5)],
+                    ),
                     borderRadius: BorderRadius.circular(12),
-                    boxShadow: canProceed ? [BoxShadow(color: const Color(0xFF6366F1).withOpacity(0.4), blurRadius: 12, offset: const Offset(0, 4))] : null,
+                    boxShadow: canProceed
+                        ? [
+                            BoxShadow(
+                              color: const Color(0xFF6366F1).withOpacity(0.4),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ]
+                        : null,
                   ),
                   child: ElevatedButton(
-                    onPressed: !canProceed || _isBusy ? null : (isLastStep ? _submit : () => setState(() => _currentStep++)),
+                    onPressed: !canProceed || _isBusy
+                        ? null
+                        : (isLastStep
+                              ? _submit
+                              : () => setState(() => _currentStep++)),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.transparent, 
+                      backgroundColor: Colors.transparent,
                       shadowColor: Colors.transparent,
-                      foregroundColor: Colors.white, 
-                      padding: const EdgeInsets.symmetric(vertical: 16), 
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
-                    child: _isBusy 
-                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : Text(isLastStep ? 'SUBMIT ADMISSION' : 'NEXT', style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1)),
+                    child: _isBusy
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : Text(
+                            isLastStep ? 'SUBMIT ADMISSION' : 'NEXT',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1,
+                            ),
+                          ),
                   ),
                 ),
               ),
