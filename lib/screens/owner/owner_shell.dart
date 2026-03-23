@@ -7,8 +7,8 @@ import '../../globals.dart';
 import '../../login_screen.dart';
 import 'home_tab.dart';
 import 'seat_map_tab.dart';
-import 'settings_tab.dart' show SettingsTab;
-import 'students_tab.dart' show StudentsTab;
+import 'settings_tab.dart';
+import 'students_tab.dart';
 import 'alerts_tab.dart';
 import 'renew_sheet.dart';
 
@@ -90,7 +90,7 @@ class _OwnerShellState extends State<OwnerShell> {
                   const SeatMapTab(),
                   StudentsTab(),
                   const AlertsTab(),
-                  const SettingsTab(),
+                  SettingsTab(),
                 ],
               ),
             ),

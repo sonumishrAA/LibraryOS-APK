@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:collection/collection.dart';
@@ -1885,6 +1886,7 @@ class _PricingEditorState extends State<_PricingEditor> {
   final ScrollController _tableScroll = ScrollController();
   // Controllers: combo -> month -> controller
   late Map<String, Map<int, TextEditingController>> _controllers;
+  final Map<String, Timer?> _debouncers = {};
 
   int _selectedMonth = 1;
   bool _isDeletingMonth = false;
@@ -1921,6 +1923,9 @@ class _PricingEditorState extends State<_PricingEditor> {
         c.dispose();
       }
     }
+    for (final timer in _debouncers.values) {
+      timer?.cancel();
+    }
     _tableScroll.dispose();
     super.dispose();
   }
@@ -1949,9 +1954,11 @@ class _PricingEditorState extends State<_PricingEditor> {
           .toList();
       final inserted = await supabase.from('combo_plans').insert(rows).select();
 
-      // Update cache
+      // Update cache and local list
       for (final row in (inserted as List)) {
-        await CacheService.onComboPlanAdded(Map<String, dynamic>.from(row));
+        final mapRow = Map<String, dynamic>.from(row);
+        await CacheService.onComboPlanAdded(mapRow);
+        widget.comboPlans.add(mapRow);
       }
 
       // Update local state
@@ -2029,6 +2036,7 @@ class _PricingEditorState extends State<_PricingEditor> {
 
       setState(() {
         _activeMonths.remove(month);
+        widget.comboPlans.removeWhere((p) => p['months'] == month);
         for (final combo in _combos) {
           _controllers[combo]![month]?.dispose();
           _controllers[combo]!.remove(month);
@@ -2262,86 +2270,42 @@ class _PricingEditorState extends State<_PricingEditor> {
 
             // Table: combo → fee
             Expanded(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Column(
                 children: [
-                  // Combo sidebar
-                  Container(
-                    width: 100,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.02),
-                      border: Border(
-                        right: BorderSide(color: Colors.white.withOpacity(0.1)),
+                  // Headers Row
+                  Row(
+                    children: [
+                      // Combo header
+                      Container(
+                        width: 100,
+                        height: 46,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.02),
+                          border: Border(
+                            right: BorderSide(color: Colors.white.withOpacity(0.1)),
+                            bottom: BorderSide(color: Colors.white.withOpacity(0.1)),
+                          ),
+                        ),
+                        child: Text(
+                          'COMBO',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white54,
+                            letterSpacing: 1.0,
+                          ),
+                        ),
                       ),
-                    ),
-                    child: Column(
-                      children: [
-                        Container(
-                          height: 46,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            border: Border(
-                              bottom: BorderSide(
-                                color: Colors.white.withOpacity(0.1),
-                              ),
-                            ),
-                          ),
-                          child: Text(
-                            'COMBO',
-                            style: GoogleFonts.plusJakartaSans(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w900,
-                              color: Colors.white54,
-                              letterSpacing: 1.0,
-                            ),
-                          ),
-                        ),
-                        Expanded(
-                          child: ListView(
-                            controller: _tableScroll,
-                            children: _combos
-                                .map(
-                                  (combo) => Container(
-                                    height: 56,
-                                    alignment: Alignment.center,
-                                    decoration: BoxDecoration(
-                                      border: Border(
-                                        bottom: BorderSide(
-                                          color: Colors.white.withOpacity(0.05),
-                                          width: 0.5,
-                                        ),
-                                      ),
-                                    ),
-                                    child: Text(
-                                      combo,
-                                      style: GoogleFonts.plusJakartaSans(
-                                        fontWeight: FontWeight.w800,
-                                        color: Colors.white,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ),
-                                )
-                                .toList(),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Fee column for selected month
-                  Expanded(
-                    child: Column(
-                      children: [
-                        Container(
+                      // Fee header
+                      Expanded(
+                        child: Container(
                           height: 46,
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
                             color: Colors.white.withOpacity(0.04),
                             border: Border(
-                              bottom: BorderSide(
-                                color: Colors.white.withOpacity(0.1),
-                              ),
+                              bottom: BorderSide(color: Colors.white.withOpacity(0.1)),
                             ),
                           ),
                           child: Text(
@@ -2353,14 +2317,47 @@ class _PricingEditorState extends State<_PricingEditor> {
                             ),
                           ),
                         ),
-                        Expanded(
-                          child: ListView(
-                            controller: _tableScroll,
-                            children: _combos.map((combo) {
-                              final ctrl = _controllers[combo]?[_selectedMonth];
-                              if (ctrl == null)
-                                return const SizedBox(height: 56);
-                              return Container(
+                      ),
+                    ],
+                  ),
+                  // Content ListView
+                  Expanded(
+                    child: ListView.builder(
+                      controller: _tableScroll,
+                      itemCount: _combos.length,
+                      itemBuilder: (context, index) {
+                        final combo = _combos[index];
+                        final ctrl = _controllers[combo]?[_selectedMonth];
+
+                        return Row(
+                          children: [
+                            // Combo cell
+                            Container(
+                              width: 100,
+                              height: 56,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.02),
+                                border: Border(
+                                  right: BorderSide(color: Colors.white.withOpacity(0.1)),
+                                  bottom: BorderSide(
+                                    color: Colors.white.withOpacity(0.05),
+                                    width: 0.5,
+                                  ),
+                                ),
+                              ),
+                              child: Text(
+                                combo,
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                            // Fee cell
+                            Expanded(
+                              child: Container(
                                 height: 56,
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 20,
@@ -2374,63 +2371,83 @@ class _PricingEditorState extends State<_PricingEditor> {
                                     ),
                                   ),
                                 ),
-                                child: TextField(
-                                  controller: ctrl,
-                                  keyboardType: TextInputType.number,
-                                  style: GoogleFonts.plusJakartaSans(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w900,
-                                    color: Colors.white,
-                                  ),
-                                  textAlign: TextAlign.center,
-                                  onChanged: (v) async {
-                                    final fee = double.tryParse(v);
-                                    if (fee == null) return;
-                                    final plan = widget.comboPlans
-                                        .firstWhereOrNull(
-                                          (p) =>
-                                              p['combination_key'] == combo &&
-                                              p['months'] == _selectedMonth,
-                                        );
-                                    if (plan != null) {
-                                      final updated = await supabase
-                                          .from('combo_plans')
-                                          .update({'fee': fee})
-                                          .eq('id', plan['id'])
-                                          .eq('library_id', currentLibraryId)
-                                          .select()
-                                          .single();
-                                      await CacheService.onComboPlanUpdated(
-                                        updated,
-                                      );
-                                      plan['fee'] = fee;
-                                    }
-                                  },
-                                  decoration: InputDecoration(
-                                    prefixIcon: const Icon(
-                                      Icons.currency_rupee_rounded,
-                                      size: 13,
-                                      color: Color(0xFF94A3B8),
-                                    ),
-                                    prefixIconConstraints: const BoxConstraints(
-                                      minWidth: 28,
-                                    ),
-                                    filled: true,
-                                    fillColor: Colors.white.withOpacity(0.05),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                      borderSide: BorderSide.none,
-                                    ),
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      vertical: 0,
-                                    ),
-                                  ),
-                                ),
-                              );
-                            }).toList(),
-                          ),
-                        ),
-                      ],
+                                child: ctrl == null
+                                    ? const SizedBox()
+                                    : TextField(
+                                        controller: ctrl,
+                                        keyboardType: TextInputType.number,
+                                        style: GoogleFonts.plusJakartaSans(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w900,
+                                          color: Colors.white,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                        onChanged: (v) {
+                                          final fee = double.tryParse(v);
+                                          if (fee == null) return;
+                                          final plan = widget.comboPlans
+                                              .firstWhereOrNull(
+                                                (p) =>
+                                                    p['combination_key'] == combo &&
+                                                    p['months'] == _selectedMonth,
+                                              );
+                                          if (plan != null) {
+                                            final dk = '${combo}_$_selectedMonth';
+                                            if (_debouncers[dk]?.isActive ?? false) {
+                                              _debouncers[dk]!.cancel();
+                                            }
+                                            _debouncers[dk] = Timer(const Duration(milliseconds: 500), () async {
+                                              try {
+                                                final updated = await supabase
+                                                    .from('combo_plans')
+                                                    .update({'fee': fee})
+                                                    .eq('id', plan['id'])
+                                                    .eq('library_id', currentLibraryId)
+                                                    .select()
+                                                    .single();
+                                                await CacheService.onComboPlanUpdated(updated);
+                                                plan['fee'] = fee;
+                                              } catch (e) {
+                                                if (mounted) {
+                                                  ScaffoldMessenger.of(context).showSnackBar(
+                                                    SnackBar(
+                                                      content: Text('Failed to save fee: $e'),
+                                                      backgroundColor: Colors.red,
+                                                      behavior: SnackBarBehavior.floating,
+                                                    ),
+                                                  );
+                                                }
+                                              }
+                                            });
+                                          }
+                                        },
+                                        decoration: InputDecoration(
+                                          isDense: true,
+                                          prefixIcon: const Icon(
+                                            Icons.currency_rupee_rounded,
+                                            size: 13,
+                                            color: Color(0xFF94A3B8),
+                                          ),
+                                          prefixIconConstraints: const BoxConstraints(
+                                            minWidth: 28,
+                                          ),
+                                          filled: true,
+                                          fillColor: Colors.white.withOpacity(0.05),
+                                          border: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(10),
+                                            borderSide: BorderSide.none,
+                                          ),
+                                          contentPadding: const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 8,
+                                          ),
+                                        ),
+                                      ),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
                     ),
                   ),
                 ],

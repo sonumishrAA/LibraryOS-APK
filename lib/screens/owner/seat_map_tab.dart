@@ -583,10 +583,14 @@ class _SeatMapTabState extends State<SeatMapTab> with TickerProviderStateMixin {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    '${_shortDate(admDate)} – ${_shortDate(endDate)}  [${months}m]',
-                    style: GoogleFonts.plusJakartaSans(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white70),
+                  Expanded(
+                    child: Text(
+                      '${_shortDate(admDate)} – ${_shortDate(endDate)}  [${months}m]',
+                      style: GoogleFonts.plusJakartaSans(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white70),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
+                  const SizedBox(width: 8),
                   Text.rich(
                     TextSpan(
                       children: [
