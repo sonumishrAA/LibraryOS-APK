@@ -86,7 +86,10 @@ class _OwnerShellState extends State<OwnerShell> {
               child: IndexedStack(
                 index: _selectedIndex,
                 children: [
-                  const HomeTab(),
+                  HomeTab(
+                    onNotificationClick: () =>
+                        setState(() => _selectedIndex = 3),
+                  ),
                   const SeatMapTab(),
                   StudentsTab(),
                   const AlertsTab(),

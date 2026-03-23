@@ -2,7 +2,6 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../constants.dart';
 import '../globals.dart';
 import '../screens/owner/sync_loading_screen.dart';
 

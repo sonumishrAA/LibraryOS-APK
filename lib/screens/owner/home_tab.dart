@@ -13,7 +13,9 @@ import '../../services/sync_service.dart';
 import 'package:collection/collection.dart';
 
 class HomeTab extends StatefulWidget {
-  const HomeTab({super.key});
+  final VoidCallback? onNotificationClick;
+  const HomeTab({super.key, this.onNotificationClick});
+
 
   @override
   State<HomeTab> createState() => _HomeTabState();
@@ -473,12 +475,13 @@ class _HomeTabState extends State<HomeTab> with TickerProviderStateMixin {
                   border: Border.all(color: Colors.white.withOpacity(0.1)),
                 ),
                 child: IconButton(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const NotificationsScreen(),
-                    ),
-                  ),
+                  onPressed: widget.onNotificationClick ??
+                      () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const NotificationsScreen(),
+                            ),
+                          ),
                   icon: const Icon(
                     Icons.notifications_active_rounded,
                     color: Colors.white,
