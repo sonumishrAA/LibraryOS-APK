@@ -157,12 +157,8 @@ class CacheService {
   // ── Staff ─────────────────────────────────────────
 
   static Future<void> onStaffUpdated(Map<String, dynamic> updated) async {
-    final list = read('staff');
-    final i = list.indexWhere((s) => s['id'] == updated['id']);
-    if (i != -1) {
-      list[i] = updated;
-      await _updateBox('staff', list);
-    }
+    await Hive.box('staff').put('data', jsonEncode(updated));
+    cacheUpdateNotifier.value++;
   }
 
   // ── Locker Policy ─────────────────────────────────

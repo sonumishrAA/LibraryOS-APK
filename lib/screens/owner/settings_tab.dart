@@ -57,10 +57,7 @@ class _SettingsTabState extends State<SettingsTab>
           .where((n) => n['is_read'] != true)
           .length;
 
-      final staff = CacheService.read('staff');
-      _currentUser = staff.firstWhereOrNull(
-        (s) => s['user_id'] == supabase.auth.currentUser?.id,
-      );
+      _currentUser = CacheService.readSingle('staff');
 
       _planCount = _comboPlans.length;
 
