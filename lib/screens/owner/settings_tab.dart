@@ -1636,16 +1636,21 @@ class _SettingsTabState extends State<SettingsTab>
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.transparent,
                           shadowColor: Colors.transparent,
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                        child: Text(
-                          'LOGOUT',
-                          style: GoogleFonts.plusJakartaSans(
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
-                            letterSpacing: 1.2,
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            'LOGOUT',
+                            style: GoogleFonts.plusJakartaSans(
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                              fontSize: 13,
+                              letterSpacing: 0.5,
+                            ),
                           ),
                         ),
                       ),
