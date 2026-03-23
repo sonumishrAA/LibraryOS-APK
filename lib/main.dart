@@ -13,6 +13,8 @@ import 'services/cache_service.dart';
 import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'screens/no_internet_screen.dart';
+import 'screens/splash_screen.dart';
+
 
 final navigatorKey = GlobalKey<NavigatorState>();
 
@@ -66,10 +68,11 @@ class LibraryOSApp extends StatelessWidget {
         ),
         textTheme: GoogleFonts.interTextTheme(ThemeData.light().textTheme),
       ),
-      home: const AppWrapper(),
+      home: const SplashScreen(),
     );
   }
 }
+
 
 class AppWrapper extends StatefulWidget {
   const AppWrapper({super.key});

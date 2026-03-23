@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'dart:ui';
+import 'dart:math' as math;
 import '../../constants.dart';
 import '../../globals.dart';
 import '../../services/cache_service.dart';
@@ -12,30 +14,30 @@ class FinancialCalendarScreen extends StatefulWidget {
       _FinancialCalendarScreenState();
 }
 
-class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
-  int _mode = 1; // 1 = Timeline Table, 2 = Student Story
+class _FinancialCalendarScreenState extends State<FinancialCalendarScreen>
+    with SingleTickerProviderStateMixin {
+  int _mode = 1;
 
-  // ── Mode 1 state ──
+  // ── Mode 1 ──────────────────────────────
   DateTime _month = DateTime.now();
   List<Map<String, dynamic>> _m1Events = [];
   double _m1Total = 0, _m1Pending = 0, _m1Discount = 0, _m1Refund = 0;
   bool _isLoading = true;
 
-  // ── Mode 2 state ──
+  // ── Mode 2 ──────────────────────────────
   List<Map<String, dynamic>> _students = [];
   List<Map<String, dynamic>> _allEvents = [];
   final Set<String> _expanded = {};
   String _m2Filter = 'ALL';
+  bool _isMode2Loading = false; // <<< dedicated loader for mode2
 
-  // ── scroll controllers ──
-  // _headerScroll  → horizontal header (driven by body)
-  // _bodyHScroll   → horizontal body scroll (drives header)
-  // _bodyScroll    → vertical ListView inside body
+  // ── Table scroll ─────────────────────────
   final ScrollController _headerScroll = ScrollController();
   final ScrollController _bodyHScroll = ScrollController();
   final ScrollController _bodyScroll = ScrollController();
 
-  // Column widths (mode 1)
+  late AnimationController _bgController;
+
   static const double _cName = 120;
   static const double _cType = 38;
   static const double _cOrig = 78;
@@ -46,7 +48,6 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
   static const double _cDue = 80;
   static const double _cPad = 14;
 
-  // total table width helper
   double get _tableWidth =>
       _cPad +
       _cName +
@@ -59,43 +60,46 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
       _cDue +
       _cPad;
 
+  // ════════════════════════════════════════
+  // LIFECYCLE
+  // ════════════════════════════════════════
+
   @override
   void initState() {
     super.initState();
-    // keep header in sync with body horizontal scroll
+    _bgController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 15),
+    )..repeat(reverse: true);
     _bodyHScroll.addListener(() {
-      if (_headerScroll.hasClients) {
-        _headerScroll.jumpTo(_bodyHScroll.offset);
-      }
+      if (_headerScroll.hasClients) _headerScroll.jumpTo(_bodyHScroll.offset);
     });
-    _loadAll();
+    _loadMode1();
+    _fetchMode2(); // async fetch on start
   }
 
   @override
   void dispose() {
+    _bgController.dispose();
     _headerScroll.dispose();
     _bodyHScroll.dispose();
     _bodyScroll.dispose();
     super.dispose();
   }
 
-  void _loadAll() {
-    _loadMode1();
-    _loadMode2();
-  }
-
-  // ════════════════════════════════════════════════════
+  // ════════════════════════════════════════
   // DATA — MODE 1
-  // ════════════════════════════════════════════════════
+  // ════════════════════════════════════════
+
   void _loadMode1() {
     setState(() => _isLoading = true);
 
-    final first = DateTime(
+    final firstStr = DateTime(
       _month.year,
       _month.month,
       1,
     ).toIso8601String().split('T')[0];
-    final last = DateTime(
+    final lastStr = DateTime(
       _month.year,
       _month.month + 1,
       0,
@@ -115,7 +119,7 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
 
     for (final s in students) {
       final adm = s['admission_date']?.toString() ?? '';
-      if (adm.compareTo(first) >= 0 && adm.compareTo(last) <= 0) {
+      if (adm.compareTo(firstStr) >= 0 && adm.compareTo(lastStr) <= 0) {
         final paid = (s['amount_paid'] as num? ?? 0).toDouble();
         final fee = (s['total_fee'] as num? ?? 0).toDouble();
         final disc = (s['discount_amount'] as num? ?? 0).toDouble();
@@ -149,25 +153,60 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
     });
   }
 
-  // ════════════════════════════════════════════════════
-  // DATA — MODE 2
-  // ════════════════════════════════════════════════════
-  void _loadMode2() {
-    // Deleted students bhi dikhane hain — record hona chahiye
-    final students = CacheService.read('students').toList()
+  // ════════════════════════════════════════
+  // DATA — MODE 2  (DB fetch for deleted)
+  // ════════════════════════════════════════
+
+  Future<void> _fetchMode2() async {
+    if (!mounted) return;
+    setState(() => _isMode2Loading = true);
+
+    // Active students from cache (sync ne is_deleted=false wale hi rakhe hain)
+    final activeStudents = List<Map<String, dynamic>>.from(
+      CacheService.read('students'),
+    );
+
+    // Deleted students seedha DB se fetch karo
+    List<Map<String, dynamic>> deletedStudents = [];
+    try {
+      debugPrint('Fetching deleted students for library: $currentLibraryId');
+      final result = await supabase
+          .from('students')
+          .select()
+          .eq('library_id', currentLibraryId)
+          .eq('is_deleted', true)
+          .order('deleted_at', ascending: false);
+
+      deletedStudents = List<Map<String, dynamic>>.from(result as List);
+      debugPrint('Found ${deletedStudents.length} deleted students');
+    } catch (e) {
+      debugPrint('Error fetching deleted students: $e');
+    }
+
+    // Financial events from cache
+    final allEvents = List<Map<String, dynamic>>.from(
+      CacheService.read('financial_events'),
+    );
+
+    // Merge: active + deleted, sort by name
+    final merged = [...activeStudents, ...deletedStudents]
       ..sort(
         (a, b) =>
             (a['name'] as String? ?? '').compareTo(b['name'] as String? ?? ''),
       );
+
+    if (!mounted) return;
     setState(() {
-      _students = students;
-      _allEvents = CacheService.read('financial_events');
+      _students = merged;
+      _allEvents = allEvents;
+      _isMode2Loading = false;
     });
   }
 
-  // ════════════════════════════════════════════════════
+  // ════════════════════════════════════════
   // HELPERS
-  // ════════════════════════════════════════════════════
+  // ════════════════════════════════════════
+
   String _eventDate(Map e) {
     final note = e['note']?.toString() ?? '';
     final m = RegExp(r'admission_date:(\d{4}-\d{2}-\d{2})').firstMatch(note);
@@ -237,97 +276,193 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
 
   List<Map<String, dynamic>> _studentEvents(String? id, String name) =>
       _allEvents.where((e) {
-        if (id != null && e['student_id'] != null) return e['student_id'] == id;
+        if (id != null && id.isNotEmpty && e['student_id'] != null) {
+          return e['student_id'] == id;
+        }
         return e['student_name'] == name;
       }).toList()..sort((a, b) => _eventDate(a).compareTo(_eventDate(b)));
 
-  // ════════════════════════════════════════════════════
+  // ════════════════════════════════════════
+  // BACKGROUND
+  // ════════════════════════════════════════
+
+  Widget _blob(double size, Color color, double opacity) => Container(
+    width: size,
+    height: size,
+    decoration: BoxDecoration(
+      shape: BoxShape.circle,
+      color: color.withOpacity(opacity),
+    ),
+  );
+
+  Widget _animatedBg() => Positioned.fill(
+    child: AnimatedBuilder(
+      animation: _bgController,
+      builder: (_, __) {
+        final v = _bgController.value;
+        final s = math.sin(v * math.pi * 2);
+        final c = math.cos(v * math.pi * 2);
+        return Stack(
+          children: [
+            Positioned(
+              top: -100 + s * 40,
+              right: -100 + c * 30,
+              child: _blob(500, const Color(0xFF1E293B), 0.3),
+            ),
+            Positioned(
+              bottom: -50 + s * -60,
+              left: -150 + s * 40,
+              child: _blob(400, const Color(0xFF6366F1), 0.2),
+            ),
+            Positioned(
+              top: 200 + c * 50,
+              right: -50 + s * -30,
+              child: _blob(350, const Color(0xFF10B981), 0.15),
+            ),
+            BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 80, sigmaY: 80),
+              child: Container(color: Colors.transparent),
+            ),
+          ],
+        );
+      },
+    ),
+  );
+
+  // ════════════════════════════════════════
+  // GLASS CARD
+  // ════════════════════════════════════════
+
+  Widget _glass({
+    required Widget child,
+    EdgeInsetsGeometry? padding,
+    double radius = 12,
+    Color? border,
+  }) => Container(
+    padding: padding,
+    decoration: BoxDecoration(
+      color: Colors.white.withOpacity(0.04),
+      borderRadius: BorderRadius.circular(radius),
+      border: Border.all(color: border ?? Colors.white.withOpacity(0.08)),
+      boxShadow: const [
+        BoxShadow(color: Colors.black12, blurRadius: 20, offset: Offset(0, 8)),
+      ],
+    ),
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: Stack(
+        children: [
+          BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: Container(color: Colors.transparent),
+          ),
+          child,
+        ],
+      ),
+    ),
+  );
+
+  // ════════════════════════════════════════
   // BUILD
-  // ════════════════════════════════════════════════════
+  // ════════════════════════════════════════
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFF0F172A),
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white),
+        centerTitle: true,
         title: Text(
           'Financial Calendar',
           style: GoogleFonts.plusJakartaSans(
             fontWeight: FontWeight.w800,
             fontSize: 18,
+            color: Colors.white,
           ),
         ),
-        backgroundColor: Colors.white,
-        foregroundColor: primaryColor,
-        elevation: 0,
-        centerTitle: true,
       ),
-      body: Column(
+      body: Stack(
         children: [
-          _buildModeToggle(),
-          if (_mode == 1) ...[
-            _buildMonthNav(),
-            _buildSummaryRow(),
-            // header + body are now both inside _buildMode1Body
-            Expanded(child: _buildMode1Body()),
-          ] else ...[
-            _buildMode2Filters(),
-            Expanded(child: _buildMode2Body()),
-          ],
+          _animatedBg(),
+          SafeArea(
+            child: Column(
+              children: [
+                _buildModeToggle(),
+                if (_mode == 1) ...[
+                  _buildMonthNav(),
+                  _buildSummaryRow(),
+                  Expanded(child: _buildMode1Body()),
+                ] else ...[
+                  _buildMode2Filters(),
+                  Expanded(child: _buildMode2Body()),
+                ],
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
 
-  // ── MODE TOGGLE ──
-  Widget _buildModeToggle() {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 10, 16, 6),
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF1F5F9),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          _modeBtn(1, 'Timeline Table', Icons.table_rows_outlined),
-          _modeBtn(2, 'Student Story', Icons.person_pin_outlined),
-        ],
-      ),
-    );
-  }
+  // ════════════════════════════════════════
+  // MODE TOGGLE
+  // ════════════════════════════════════════
+
+  Widget _buildModeToggle() => Container(
+    margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+    padding: const EdgeInsets.all(4),
+    decoration: BoxDecoration(
+      color: Colors.white.withOpacity(0.05),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: Colors.white.withOpacity(0.08)),
+    ),
+    child: Row(
+      children: [
+        _modeBtn(1, 'Timeline Table', Icons.table_rows_outlined),
+        _modeBtn(2, 'Student Story', Icons.person_pin_outlined),
+      ],
+    ),
+  );
 
   Widget _modeBtn(int mode, String label, IconData icon) {
     final active = _mode == mode;
     return Expanded(
       child: GestureDetector(
-        onTap: () => setState(() => _mode = mode),
+        onTap: () {
+          setState(() => _mode = mode);
+          if (mode == 2) _fetchMode2(); // re-fetch on every switch
+        },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
-            color: active ? Colors.white : Colors.transparent,
-            borderRadius: BorderRadius.circular(7),
-            boxShadow: active
-                ? [
-                    const BoxShadow(
-                      color: Colors.black12,
-                      blurRadius: 4,
-                      offset: Offset(0, 1),
-                    ),
-                  ]
-                : [],
+            color: active
+                ? const Color(0xFF6366F1).withOpacity(0.25)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(9),
+            border: active
+                ? Border.all(color: const Color(0xFF818CF8).withOpacity(0.5))
+                : null,
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 14, color: active ? primaryColor : Colors.grey),
+              Icon(
+                icon,
+                size: 14,
+                color: active ? const Color(0xFF818CF8) : Colors.white38,
+              ),
               const SizedBox(width: 6),
               Text(
                 label,
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 12,
                   fontWeight: active ? FontWeight.w800 : FontWeight.w500,
-                  color: active ? primaryColor : Colors.grey,
+                  color: active ? Colors.white : Colors.white38,
                 ),
               ),
             ],
@@ -337,67 +472,74 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
     );
   }
 
-  // ════════════════════════════════════════════════════
+  // ════════════════════════════════════════
   // MODE 1 — TIMELINE TABLE
-  // ════════════════════════════════════════════════════
+  // ════════════════════════════════════════
 
   Widget _buildMonthNav() => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 2),
+    padding: const EdgeInsets.symmetric(vertical: 4),
     child: Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        IconButton(
-          onPressed: () {
-            setState(() => _month = DateTime(_month.year, _month.month - 1));
-            _loadMode1();
-          },
-          icon: const Icon(Icons.chevron_left_rounded, color: primaryColor),
-        ),
+        _navBtn(Icons.chevron_left_rounded, () {
+          setState(() => _month = DateTime(_month.year, _month.month - 1));
+          _loadMode1();
+        }),
         SizedBox(
-          width: 130,
+          width: 140,
           child: Text(
             '${_mon(_month.month)} ${_month.year}',
             textAlign: TextAlign.center,
             style: GoogleFonts.plusJakartaSans(
-              fontWeight: FontWeight.w700,
-              fontSize: 15,
-              color: primaryColor,
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+              color: Colors.white,
             ),
           ),
         ),
-        IconButton(
-          onPressed: () {
-            setState(() => _month = DateTime(_month.year, _month.month + 1));
-            _loadMode1();
-          },
-          icon: const Icon(Icons.chevron_right_rounded, color: primaryColor),
-        ),
+        _navBtn(Icons.chevron_right_rounded, () {
+          setState(() => _month = DateTime(_month.year, _month.month + 1));
+          _loadMode1();
+        }),
       ],
     ),
   );
 
+  Widget _navBtn(IconData icon, VoidCallback onTap) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.05),
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Icon(icon, color: const Color(0xFF818CF8), size: 22),
+    ),
+  );
+
   Widget _buildSummaryRow() => Padding(
-    padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+    padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
     child: Row(
       children: [
-        _sBox('Collected', _m1Total, Colors.green),
+        _sBox('Collected', _m1Total, const Color(0xFF10B981)),
         const SizedBox(width: 6),
-        _sBox('Pending', _m1Pending, Colors.red),
+        _sBox('Pending', _m1Pending, const Color(0xFFEF4444)),
         const SizedBox(width: 6),
-        _sBox('Discount', _m1Discount, Colors.purple),
+        _sBox('Discount', _m1Discount, const Color(0xFFA78BFA)),
         const SizedBox(width: 6),
-        _sBox('Refund', _m1Refund, Colors.orange),
+        _sBox('Refund', _m1Refund, const Color(0xFFF59E0B)),
       ],
     ),
   );
 
   Widget _sBox(String label, double val, Color c) => Expanded(
     child: Container(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
       decoration: BoxDecoration(
-        color: c.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: c.withOpacity(0.15)),
+        color: c.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: c.withOpacity(0.25)),
       ),
       child: Column(
         children: [
@@ -405,11 +547,12 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
             label,
             style: GoogleFonts.plusJakartaSans(
               fontSize: 9,
-              fontWeight: FontWeight.bold,
+              fontWeight: FontWeight.w800,
               color: c,
+              letterSpacing: 0.3,
             ),
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 3),
           FittedBox(
             child: Text(
               '₹${val.toInt()}',
@@ -425,20 +568,19 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
     ),
   );
 
-  // ── TABLE HEADER ROW ──
   Widget _hdrRow() {
     ts(String t) => Text(
       t,
       style: GoogleFonts.plusJakartaSans(
         fontSize: 9,
         fontWeight: FontWeight.w800,
-        color: const Color(0xFF64748B),
+        color: Colors.white38,
         letterSpacing: 0.5,
       ),
     );
     return Container(
-      color: const Color(0xFFF1F5F9),
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      color: Colors.white.withOpacity(0.04),
+      padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(
         children: [
           SizedBox(width: _cPad),
@@ -480,23 +622,35 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
     );
   }
 
-  // ── MODE 1 BODY — embeds sticky header + scrollable rows ──
   Widget _buildMode1Body() {
     if (_isLoading) {
       return const Center(
-        child: CircularProgressIndicator(color: primaryColor),
+        child: CircularProgressIndicator(color: Color(0xFF6366F1)),
       );
     }
     if (_m1Events.isEmpty) {
       return Center(
-        child: Text(
-          'No activity in ${_mon(_month.month)} ${_month.year}',
-          style: GoogleFonts.plusJakartaSans(color: textMuted, fontSize: 13),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(
+              Icons.receipt_long_outlined,
+              color: Colors.white24,
+              size: 56,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'No activity in ${_mon(_month.month)} ${_month.year}',
+              style: GoogleFonts.plusJakartaSans(
+                color: Colors.white38,
+                fontSize: 14,
+              ),
+            ),
+          ],
         ),
       );
     }
 
-    // Group by logical date (skip standalone DISCOUNT_APPLIED rows)
     final grouped = <String, List<Map<String, dynamic>>>{};
     for (final e in _m1Events) {
       if (e['event_type'] == 'DISCOUNT_APPLIED') continue;
@@ -505,16 +659,13 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
 
     return Column(
       children: [
-        // ── Sticky header — driven by _bodyHScroll ──
         SingleChildScrollView(
           controller: _headerScroll,
           scrollDirection: Axis.horizontal,
           physics: const NeverScrollableScrollPhysics(),
           child: SizedBox(width: _tableWidth, child: _hdrRow()),
         ),
-        const Divider(height: 1, color: Color(0xFFE2E8F0)),
-
-        // ── Scrollable body — horizontal + vertical ──
+        Divider(height: 1, color: Colors.white.withOpacity(0.06)),
         Expanded(
           child: SingleChildScrollView(
             controller: _bodyHScroll,
@@ -528,22 +679,21 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
                     (entry) => Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // date section header
                         Container(
                           width: double.infinity,
-                          color: const Color(0xFFF8FAFC),
+                          color: Colors.white.withOpacity(0.02),
                           padding: const EdgeInsets.fromLTRB(14, 7, 14, 5),
                           child: Text(
                             _shortDate(entry.key).toUpperCase(),
                             style: GoogleFonts.plusJakartaSans(
                               fontSize: 10,
                               fontWeight: FontWeight.w800,
-                              color: const Color(0xFF94A3B8),
-                              letterSpacing: 0.5,
+                              color: const Color(0xFF6366F1),
+                              letterSpacing: 0.8,
                             ),
                           ),
                         ),
-                        ...entry.value.map((e) => _m1Row(e)),
+                        ...entry.value.map(_m1Row),
                       ],
                     ),
                   ),
@@ -557,7 +707,6 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
     );
   }
 
-  // ── SINGLE TABLE ROW ──
   Widget _m1Row(Map e) {
     final type = e['event_type']?.toString() ?? '';
     if (type == 'DISCOUNT_APPLIED') return const SizedBox.shrink();
@@ -568,25 +717,24 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
     final orig = _origFromNote(note);
     final disc = _discFromNote(note);
     final eff = (orig - disc).clamp(0.0, double.infinity);
-    final displayOrig = orig > 0 ? orig : (paid + due + disc);
-    final displayEff = orig > 0 ? eff : (paid + due);
+    final dispOrig = orig > 0 ? orig : (paid + due + disc);
+    final dispEff = orig > 0 ? eff : (paid + due);
     final plan = _planFromNote(note);
     final name = e['student_name']?.toString() ?? '—';
-
-    final (typeLabel, typeColor) = _typeConfig(type);
-    final dotColor = _dotColor(type);
+    final (lbl, tc) = _typeConfig(type);
+    final dot = _dotColor(type);
 
     return Container(
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: Color(0xFFF1F5F9))),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: Colors.white.withOpacity(0.04), width: 0.5),
+        ),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 11),
+        padding: const EdgeInsets.symmetric(vertical: 12),
         child: Row(
           children: [
             SizedBox(width: _cPad),
-
-            // NAME
             SizedBox(
               width: _cName,
               child: Row(
@@ -595,7 +743,7 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
                     width: 7,
                     height: 7,
                     decoration: BoxDecoration(
-                      color: dotColor,
+                      color: dot,
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -606,7 +754,7 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
                       style: GoogleFonts.plusJakartaSans(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
-                        color: const Color(0xFF1E293B),
+                        color: Colors.white,
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -614,8 +762,6 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
                 ],
               ),
             ),
-
-            // TYPE chip
             SizedBox(
               width: _cType,
               child: Center(
@@ -625,36 +771,32 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
                     vertical: 3,
                   ),
                   decoration: BoxDecoration(
-                    color: typeColor.withOpacity(0.12),
+                    color: tc.withOpacity(0.18),
                     borderRadius: BorderRadius.circular(5),
                   ),
                   child: Text(
-                    typeLabel,
+                    lbl,
                     style: GoogleFonts.plusJakartaSans(
                       fontSize: 9,
                       fontWeight: FontWeight.w900,
-                      color: typeColor,
+                      color: tc,
                     ),
                   ),
                 ),
               ),
             ),
-
-            // ORIGINAL
             SizedBox(
               width: _cOrig,
               child: Text(
-                '₹${displayOrig.toInt()}',
+                '₹${dispOrig.toInt()}',
                 textAlign: TextAlign.center,
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 12,
-                  color: const Color(0xFF475569),
+                  color: Colors.white60,
                   fontWeight: FontWeight.w600,
                 ),
               ),
             ),
-
-            // DISCOUNT
             SizedBox(
               width: _cDisc,
               child: disc > 0
@@ -666,7 +808,7 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
                           textAlign: TextAlign.center,
                           style: GoogleFonts.plusJakartaSans(
                             fontSize: 12,
-                            color: Colors.purple.shade700,
+                            color: const Color(0xFFC084FC),
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -677,14 +819,14 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
                             vertical: 1,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.purple.withOpacity(0.08),
+                            color: const Color(0xFFA78BFA).withOpacity(0.15),
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
                             'DISC',
                             style: GoogleFonts.plusJakartaSans(
                               fontSize: 8,
-                              color: Colors.purple.shade400,
+                              color: const Color(0xFFC084FC),
                               fontWeight: FontWeight.w800,
                             ),
                           ),
@@ -696,28 +838,22 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
                       textAlign: TextAlign.center,
                       style: GoogleFonts.plusJakartaSans(
                         fontSize: 12,
-                        color: const Color(0xFFCBD5E1),
+                        color: Colors.white24,
                       ),
                     ),
             ),
-
-            // EFFECTIVE
             SizedBox(
               width: _cEff,
               child: Text(
-                '₹${displayEff.toInt()}',
+                '₹${dispEff.toInt()}',
                 textAlign: TextAlign.center,
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 12,
-                  color: disc > 0
-                      ? Colors.purple.shade700
-                      : const Color(0xFF475569),
+                  color: disc > 0 ? const Color(0xFFC084FC) : Colors.white60,
                   fontWeight: FontWeight.w700,
                 ),
               ),
             ),
-
-            // PLAN
             SizedBox(
               width: _cPlan,
               child: Text(
@@ -725,13 +861,11 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
                 textAlign: TextAlign.center,
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 10,
-                  color: const Color(0xFF475569),
+                  color: Colors.white54,
                   fontWeight: FontWeight.w600,
                 ),
               ),
             ),
-
-            // PAID
             SizedBox(
               width: _cPaid,
               child: Text(
@@ -739,13 +873,11 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
                 textAlign: TextAlign.right,
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 12,
-                  color: Colors.green.shade700,
+                  color: const Color(0xFF34D399),
                   fontWeight: FontWeight.w800,
                 ),
               ),
             ),
-
-            // DUE / STATUS
             SizedBox(
               width: _cDue,
               child: due > 0
@@ -754,7 +886,7 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
                       textAlign: TextAlign.right,
                       style: GoogleFonts.plusJakartaSans(
                         fontSize: 12,
-                        color: Colors.red.shade600,
+                        color: const Color(0xFFFCA5A5),
                         fontWeight: FontWeight.w800,
                       ),
                     )
@@ -766,22 +898,23 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
                           vertical: 2,
                         ),
                         decoration: BoxDecoration(
-                          color: Colors.green.shade50,
+                          color: const Color(0xFF10B981).withOpacity(0.15),
                           borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: Colors.green.shade200),
+                          border: Border.all(
+                            color: const Color(0xFF10B981).withOpacity(0.3),
+                          ),
                         ),
                         child: Text(
                           '✓ Clear',
                           style: GoogleFonts.plusJakartaSans(
                             fontSize: 9,
-                            color: Colors.green.shade700,
+                            color: const Color(0xFF34D399),
                             fontWeight: FontWeight.w800,
                           ),
                         ),
                       ),
                     ),
             ),
-
             SizedBox(width: _cPad),
           ],
         ),
@@ -789,14 +922,14 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
     );
   }
 
-  (String label, Color color) _typeConfig(String type) => switch (type) {
+  (String, Color) _typeConfig(String type) => switch (type) {
     'ADMISSION_FULL' => ('ADM', Colors.blue),
     'ADMISSION_PARTIAL' => ('ADM', Colors.orange),
     'ADMISSION_PENDING' => ('ADM', Colors.red),
     'PAYMENT_RECEIVED' => ('PMT', Colors.teal),
     'RENEWAL' => ('RNW', Colors.indigo),
     'REFUND_ON_DELETE' => ('DEL↩', Colors.orange),
-    'NO_REFUND_ON_DELETE' => ('DEL', Colors.red.shade300),
+    'NO_REFUND_ON_DELETE' => ('DEL', const Color(0xFFEF9999)),
     _ => ('???', Colors.grey),
   };
 
@@ -808,59 +941,57 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
     'ADMISSION_PENDING' => Colors.red,
     'DISCOUNT_APPLIED' => Colors.purple,
     'REFUND_ON_DELETE' => Colors.orange,
-    'NO_REFUND_ON_DELETE' => Colors.red.shade300,
+    'NO_REFUND_ON_DELETE' => const Color(0xFFEF9999),
     _ => Colors.grey,
   };
 
-  // ════════════════════════════════════════════════════
-  // MODE 2 — STUDENT STORY
-  // ════════════════════════════════════════════════════
+  // ════════════════════════════════════════
+  // MODE 2 — FILTERS
+  // ════════════════════════════════════════
 
   Widget _buildMode2Filters() {
     final today = DateTime.now().toIso8601String().split('T')[0];
-    final cnt = <String, int>{
-      'ALL': _students.length,
-      'PAID': _students
-          .where(
-            (s) =>
-                s['is_deleted'] != true &&
-                s['payment_status'] == 'paid' &&
-                (s['end_date']?.toString() ?? '').compareTo(today) >= 0,
-          )
-          .length,
-      'PARTIAL': _students
-          .where(
-            (s) =>
-                s['is_deleted'] != true &&
-                s['payment_status'] == 'partial' &&
-                (s['end_date']?.toString() ?? '').compareTo(today) >= 0,
-          )
-          .length,
-      'PENDING': _students
-          .where(
-            (s) =>
-                s['is_deleted'] != true &&
-                s['payment_status'] == 'pending' &&
-                (s['end_date']?.toString() ?? '').compareTo(today) >= 0,
-          )
-          .length,
-      'EXPIRED': _students
-          .where(
-            (s) =>
-                s['is_deleted'] != true &&
-                (s['end_date']?.toString() ?? '').compareTo(today) < 0,
-          )
-          .length,
-      'DELETED': _students.where((s) => s['is_deleted'] == true).length,
-    };
+    int cAll = _students.length;
+    int cPaid = 0, cPartial = 0, cPending = 0, cExpired = 0, cDeleted = 0;
 
+    for (final s in _students) {
+      final isDeleted = s['is_deleted'] == true;
+      final isExpired =
+          !isDeleted && (s['end_date']?.toString() ?? '').compareTo(today) < 0;
+      if (isDeleted) {
+        cDeleted++;
+      } else if (isExpired) {
+        cExpired++;
+      } else {
+        switch (s['payment_status']?.toString()) {
+          case 'paid':
+            cPaid++;
+            break;
+          case 'partial':
+            cPartial++;
+            break;
+          case 'pending':
+            cPending++;
+            break;
+        }
+      }
+    }
+
+    final cnt = {
+      'ALL': cAll,
+      'PAID': cPaid,
+      'PARTIAL': cPartial,
+      'PENDING': cPending,
+      'EXPIRED': cExpired,
+      'DELETED': cDeleted,
+    };
     final colors = <String, Color>{
-      'ALL': primaryColor,
-      'PAID': Colors.green,
-      'PARTIAL': Colors.orange,
-      'PENDING': Colors.red,
-      'EXPIRED': Colors.grey,
-      'DELETED': const Color(0xFF991B1B),
+      'ALL': const Color(0xFF6366F1),
+      'PAID': const Color(0xFF10B981),
+      'PARTIAL': const Color(0xFFF59E0B),
+      'PENDING': const Color(0xFFEF4444),
+      'EXPIRED': const Color(0xFF94A3B8),
+      'DELETED': const Color(0xFFEF4444),
     };
 
     return SingleChildScrollView(
@@ -878,15 +1009,17 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
                   margin: const EdgeInsets.only(right: 8),
                   padding: const EdgeInsets.symmetric(
                     horizontal: 12,
-                    vertical: 6,
+                    vertical: 7,
                   ),
                   decoration: BoxDecoration(
                     color: active
-                        ? c.withOpacity(0.12)
-                        : const Color(0xFFF1F5F9),
-                    borderRadius: BorderRadius.circular(8),
+                        ? c.withOpacity(0.15)
+                        : Colors.white.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(10),
                     border: Border.all(
-                      color: active ? c.withOpacity(0.4) : Colors.transparent,
+                      color: active
+                          ? c.withOpacity(0.5)
+                          : Colors.white.withOpacity(0.08),
                     ),
                   ),
                   child: Row(
@@ -896,25 +1029,27 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
                         style: GoogleFonts.plusJakartaSans(
                           fontSize: 11,
                           fontWeight: FontWeight.w800,
-                          color: active ? c : Colors.grey,
+                          color: active ? Colors.white : Colors.white38,
                         ),
                       ),
-                      const SizedBox(width: 5),
+                      const SizedBox(width: 6),
                       Container(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 5,
-                          vertical: 1,
+                          horizontal: 6,
+                          vertical: 2,
                         ),
                         decoration: BoxDecoration(
-                          color: active ? c.withOpacity(0.2) : Colors.white,
+                          color: active
+                              ? c.withOpacity(0.25)
+                              : Colors.white.withOpacity(0.08),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
                           '${cnt[f] ?? 0}',
                           style: GoogleFonts.plusJakartaSans(
-                            fontSize: 9,
+                            fontSize: 10,
                             fontWeight: FontWeight.w900,
-                            color: active ? c : Colors.grey,
+                            color: active ? Colors.white : Colors.white38,
                           ),
                         ),
                       ),
@@ -928,31 +1063,62 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
     );
   }
 
+  // ════════════════════════════════════════
+  // MODE 2 — BODY
+  // ════════════════════════════════════════
+
   List<Map<String, dynamic>> get _filteredStudents {
     final today = DateTime.now().toIso8601String().split('T')[0];
     return _students.where((s) {
       final isDeleted = s['is_deleted'] == true;
-      final expired =
+      final isExpired =
           !isDeleted && (s['end_date']?.toString() ?? '').compareTo(today) < 0;
       if (_m2Filter == 'ALL') return true;
       if (_m2Filter == 'DELETED') return isDeleted;
-      if (isDeleted)
-        return false; // deleted wale sirf DELETED filter mein dikhein
-      if (_m2Filter == 'EXPIRED') return expired;
-      if (expired) return false;
+      if (isDeleted) return false;
+      if (_m2Filter == 'EXPIRED') return isExpired;
+      if (isExpired) return false;
       return s['payment_status']?.toString().toUpperCase() == _m2Filter;
     }).toList();
   }
 
   Widget _buildMode2Body() {
-    if (_filteredStudents.isEmpty) {
-      return Center(
-        child: Text(
-          'No students',
-          style: GoogleFonts.plusJakartaSans(color: textMuted, fontSize: 13),
+    // Loading state
+    if (_isMode2Loading) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(color: Color(0xFF6366F1)),
+            SizedBox(height: 16),
+            Text(
+              'Loading student records...',
+              style: TextStyle(color: Colors.white38, fontSize: 13),
+            ),
+          ],
         ),
       );
     }
+
+    if (_filteredStudents.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.people_outline, color: Colors.white24, size: 56),
+            const SizedBox(height: 16),
+            Text(
+              'No students in this filter',
+              style: GoogleFonts.plusJakartaSans(
+                color: Colors.white38,
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
       itemCount: _filteredStudents.length,
@@ -968,288 +1134,303 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
     final isExpired =
         !isDeleted && (s['end_date']?.toString() ?? '').compareTo(today) < 0;
     final expanded = _expanded.contains(id);
+
     final totalFee = (s['total_fee'] as num? ?? 0).toDouble();
     final amtPaid = (s['amount_paid'] as num? ?? 0).toDouble();
     final disc = (s['discount_amount'] as num? ?? 0).toDouble();
     final pending = (totalFee - disc - amtPaid).clamp(0.0, double.infinity);
+
     final status = isDeleted
         ? 'DELETED'
         : isExpired
         ? 'EXPIRED'
         : (s['payment_status']?.toString().toUpperCase() ?? 'PENDING');
 
-    final statusColors = <String, Color>{
-      'PAID': Colors.green,
-      'PARTIAL': Colors.orange,
-      'PENDING': Colors.red,
-      'DISCOUNTED': Colors.purple,
-      'EXPIRED': Colors.grey,
-      'DELETED': const Color(0xFF991B1B),
-    };
-    final sc = statusColors[status] ?? Colors.grey;
+    final sc =
+        <String, Color>{
+          'PAID': const Color(0xFF10B981),
+          'PARTIAL': const Color(0xFFF59E0B),
+          'PENDING': const Color(0xFFEF4444),
+          'DISCOUNTED': const Color(0xFFA78BFA),
+          'EXPIRED': const Color(0xFF94A3B8),
+          'DELETED': const Color(0xFFEF4444),
+        }[status] ??
+        Colors.grey;
 
-    final events = _studentEvents(id.isEmpty ? null : id, name);
+    final events = _studentEvents(id, name);
 
     return Opacity(
-      opacity: isDeleted ? 0.72 : 1.0,
+      opacity: isDeleted ? 0.75 : 1.0,
       child: Container(
         margin: const EdgeInsets.only(bottom: 14),
         decoration: BoxDecoration(
-          color: isDeleted ? const Color(0xFFFFF1F2) : Colors.white,
-          borderRadius: BorderRadius.circular(14),
+          color: isDeleted
+              ? Colors.red.withOpacity(0.06)
+              : Colors.white.withOpacity(0.04),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isDeleted
-                ? const Color(0xFFFFCDD2)
-                : expanded
-                ? sc.withOpacity(0.4)
-                : const Color(0xFFE2E8F0),
+            color: expanded
+                ? sc.withOpacity(0.5)
+                : (isDeleted
+                      ? Colors.red.withOpacity(0.25)
+                      : Colors.white.withOpacity(0.08)),
             width: expanded ? 1.5 : 1,
           ),
-          boxShadow: [
+          boxShadow: const [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 3),
+              color: Colors.black12,
+              blurRadius: 12,
+              offset: Offset(0, 4),
             ),
           ],
         ),
-        child: Column(
-          children: [
-            GestureDetector(
-              onTap: () => setState(() {
-                if (expanded)
-                  _expanded.remove(id);
-                else
-                  _expanded.add(id);
-              }),
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: sc.withOpacity(0.04),
-                  borderRadius: BorderRadius.only(
-                    topLeft: const Radius.circular(13),
-                    topRight: const Radius.circular(13),
-                    bottomLeft: Radius.circular(expanded ? 0 : 13),
-                    bottomRight: Radius.circular(expanded ? 0 : 13),
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            name,
-                            style: GoogleFonts.plusJakartaSans(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w900,
-                              color: const Color(0xFF1E293B),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Column(
+            children: [
+              // ── Card header ──
+              GestureDetector(
+                onTap: () => setState(() {
+                  if (expanded)
+                    _expanded.remove(id);
+                  else
+                    _expanded.add(id);
+                }),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              name,
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w900,
+                                color: Colors.white,
+                              ),
                             ),
                           ),
-                        ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: sc.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: sc.withOpacity(0.4)),
+                            ),
+                            child: Text(
+                              status,
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w900,
+                                color: sc,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          AnimatedRotation(
+                            turns: expanded ? 0.5 : 0,
+                            duration: const Duration(milliseconds: 200),
+                            child: Icon(
+                              Icons.keyboard_arrow_down_rounded,
+                              color: Colors.white38,
+                              size: 22,
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      // Deleted banner
+                      if (isDeleted) ...[
+                        const SizedBox(height: 10),
                         Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
+                            horizontal: 10,
                             vertical: 5,
                           ),
                           decoration: BoxDecoration(
-                            color: sc.withOpacity(0.14),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: sc.withOpacity(0.35)),
+                            color: Colors.red.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: Colors.red.withOpacity(0.3),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.delete_outline_rounded,
+                                size: 13,
+                                color: Color(0xFFFCA5A5),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                s['deleted_at'] != null
+                                    ? 'Deleted on ${_shortDate(s['deleted_at'].toString())}'
+                                    : 'Student Deleted',
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: const Color(0xFFFCA5A5),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+
+                      const SizedBox(height: 12),
+
+                      Wrap(
+                        spacing: 12,
+                        children: [
+                          _chip(
+                            Icons.airline_seat_recline_normal_outlined,
+                            s['combination_key']?.toString() ?? '—',
+                            Colors.blue,
+                          ),
+                          _chip(
+                            Icons.schedule_outlined,
+                            s['plan_months'] != null
+                                ? '${s['plan_months']}mo'
+                                : '—',
+                            Colors.indigo,
+                          ),
+                          if (!isDeleted)
+                            _chip(
+                              Icons.calendar_today_outlined,
+                              'Ends ${_shortDate(s['end_date']?.toString() ?? '')}',
+                              isExpired
+                                  ? const Color(0xFFFCA5A5)
+                                  : Colors.white54,
+                            ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      Row(
+                        children: [
+                          _feeBox(
+                            'Total Fee',
+                            '₹${totalFee.toInt()}',
+                            Colors.white60,
+                          ),
+                          const SizedBox(width: 8),
+                          _feeBox(
+                            'Paid',
+                            '₹${amtPaid.toInt()}',
+                            const Color(0xFF34D399),
+                          ),
+                          const SizedBox(width: 8),
+                          _feeBox(
+                            'Pending',
+                            pending > 0 ? '₹${pending.toInt()}' : '✓ Cleared',
+                            pending > 0
+                                ? const Color(0xFFFCA5A5)
+                                : const Color(0xFF34D399),
+                            bg: pending > 0
+                                ? Colors.red.withOpacity(0.08)
+                                : const Color(0xFF10B981).withOpacity(0.08),
+                            bold: true,
+                          ),
+                        ],
+                      ),
+
+                      if (disc > 0) ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFA78BFA).withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: const Color(0xFFA78BFA).withOpacity(0.3),
+                            ),
                           ),
                           child: Text(
-                            status,
+                            '🏷  Discount: ₹${disc.toInt()}',
                             style: GoogleFonts.plusJakartaSans(
                               fontSize: 12,
-                              fontWeight: FontWeight.w900,
-                              color: sc,
+                              color: const Color(0xFFC084FC),
+                              fontWeight: FontWeight.w700,
                             ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        AnimatedRotation(
-                          turns: expanded ? 0.5 : 0,
-                          duration: const Duration(milliseconds: 200),
-                          child: Icon(
-                            Icons.keyboard_arrow_down_rounded,
-                            color: Colors.grey.shade400,
-                            size: 22,
                           ),
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 10),
-                    if (isDeleted) ...[
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFFE4E6),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: const Color(0xFFFDA4AF)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.delete_outline_rounded,
-                              size: 13,
-                              color: Color(0xFF991B1B),
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              s['deleted_at'] != null
-                                  ? 'Deleted on ${_shortDate(s['deleted_at'].toString())}'
-                                  : 'Student Deleted',
-                              style: GoogleFonts.plusJakartaSans(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: const Color(0xFF991B1B),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 8),
                     ],
-                    Wrap(
-                      spacing: 10,
-                      children: [
-                        _chip(
-                          Icons.airline_seat_recline_normal_outlined,
-                          s['combination_key']?.toString() ?? '—',
-                          Colors.blue,
-                        ),
-                        _chip(
-                          Icons.schedule_outlined,
-                          s['plan_months'] != null
-                              ? '${s['plan_months']}mo'
-                              : '—',
-                          Colors.indigo,
-                        ),
-                        _chip(
-                          Icons.calendar_today_outlined,
-                          'Ends ${_shortDate(s['end_date']?.toString() ?? '')}',
-                          isExpired ? Colors.red : Colors.grey,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        _feeBox(
-                          'Total Fee',
-                          '₹${totalFee.toInt()}',
-                          const Color(0xFF475569),
-                        ),
-                        const SizedBox(width: 8),
-                        _feeBox(
-                          'Paid',
-                          '₹${amtPaid.toInt()}',
-                          Colors.green.shade700,
-                        ),
-                        const SizedBox(width: 8),
-                        _feeBox(
-                          'Pending',
-                          pending > 0 ? '₹${pending.toInt()}' : '✓ Cleared',
-                          pending > 0
-                              ? Colors.red.shade700
-                              : Colors.green.shade700,
-                          bg: pending > 0
-                              ? Colors.red.shade50
-                              : Colors.green.shade50,
-                          bold: true,
-                        ),
-                      ],
-                    ),
-                    if (disc > 0) ...[
-                      const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.purple.shade50,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: Colors.purple.shade100),
-                        ),
-                        child: Text(
-                          '🏷  Discount Applied: ₹${disc.toInt()}',
-                          style: GoogleFonts.plusJakartaSans(
-                            fontSize: 12,
-                            color: Colors.purple.shade700,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
+                  ),
                 ),
               ),
-            ),
-            if (expanded) ...[
-              Container(height: 1, color: const Color(0xFFE2E8F0)),
-              Container(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
-                color: const Color(0xFFF8FAFC),
-                child: Row(
-                  children: [
-                    Text(
-                      'Transaction History  •  ${events.length} events',
+
+              // ── Expanded transactions ──
+              if (expanded) ...[
+                Divider(height: 1, color: Colors.white.withOpacity(0.08)),
+                Container(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
+                  color: Colors.white.withOpacity(0.02),
+                  child: Row(
+                    children: [
+                      Text(
+                        'Transaction History  •  ${events.length} events',
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white38,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (events.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Text(
+                      'No transactions found',
                       style: GoogleFonts.plusJakartaSans(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: const Color(0xFF64748B),
+                        color: Colors.white38,
+                        fontSize: 13,
                       ),
                     ),
-                  ],
-                ),
-              ),
-              if (events.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Text(
-                    'No transactions found',
-                    style: GoogleFonts.plusJakartaSans(
-                      color: textMuted,
-                      fontSize: 13,
+                  )
+                else
+                  ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: events.length,
+                    separatorBuilder: (_, __) => Divider(
+                      height: 1,
+                      indent: 56,
+                      color: Colors.white.withOpacity(0.05),
                     ),
+                    itemBuilder: (_, i) => _eventRow(events[i]),
                   ),
-                )
-              else
-                ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: events.length,
-                  separatorBuilder: (_, __) => const Divider(
-                    height: 1,
-                    color: Color(0xFFF1F5F9),
-                    indent: 56,
-                  ),
-                  itemBuilder: (_, i) =>
-                      _eventRow(events[i], isLast: i == events.length - 1),
-                ),
+              ],
             ],
-          ],
+          ),
         ),
-      ), // end Opacity
+      ),
     );
   }
 
   Widget _chip(IconData icon, String text, Color c) => Row(
     mainAxisSize: MainAxisSize.min,
     children: [
-      Icon(icon, size: 12, color: c.withOpacity(0.7)),
+      Icon(icon, size: 12, color: c.withOpacity(0.8)),
       const SizedBox(width: 4),
       Text(
         text,
         style: GoogleFonts.plusJakartaSans(
           fontSize: 11,
-          color: Colors.grey.shade600,
+          color: Colors.white60,
           fontWeight: FontWeight.w600,
         ),
       ),
@@ -1266,9 +1447,9 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
     child: Container(
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
       decoration: BoxDecoration(
-        color: bg ?? Colors.white,
+        color: bg ?? Colors.white.withOpacity(0.04),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
       ),
       child: Column(
         children: [
@@ -1277,7 +1458,7 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
             style: GoogleFonts.plusJakartaSans(
               fontSize: 9,
               fontWeight: FontWeight.w700,
-              color: Colors.grey.shade500,
+              color: Colors.white38,
             ),
           ),
           const SizedBox(height: 4),
@@ -1296,54 +1477,57 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
     ),
   );
 
-  Widget _eventRow(Map e, {bool isLast = false}) {
+  Widget _eventRow(Map e) {
     final type = e['event_type']?.toString() ?? '';
     final paid = (e['amount'] as num? ?? 0).toDouble();
     final due = (e['pending_amount'] as num? ?? 0).toDouble();
-    final note = e['note']?.toString() ?? '';
-    final plan = _planFromNote(note);
+    final plan = _planFromNote(e['note']?.toString());
     final date = _eventDate(e);
 
-    final configs = <String, (String, IconData, Color)>{
+    final cfgs = <String, (String, IconData, Color)>{
       'ADMISSION_FULL': (
         'Admission — Fully Paid',
         Icons.person_add_outlined,
-        Colors.green,
+        const Color(0xFF34D399),
       ),
       'ADMISSION_PARTIAL': (
         'Admission — Partial Payment',
         Icons.person_add_outlined,
-        Colors.orange,
+        const Color(0xFFF59E0B),
       ),
       'ADMISSION_PENDING': (
         'Admission — Full Pending',
         Icons.person_add_outlined,
-        Colors.red,
+        const Color(0xFFFCA5A5),
       ),
       'PAYMENT_RECEIVED': (
         'Payment Collected',
         Icons.payments_outlined,
-        Colors.teal,
+        const Color(0xFF34D399),
       ),
       'DISCOUNT_APPLIED': (
         'Discount Applied',
         Icons.discount_outlined,
-        Colors.purple,
+        const Color(0xFFC084FC),
       ),
-      'RENEWAL': ('Seat Renewed', Icons.autorenew_outlined, Colors.indigo),
+      'RENEWAL': (
+        'Seat Renewed',
+        Icons.autorenew_outlined,
+        const Color(0xFF818CF8),
+      ),
       'REFUND_ON_DELETE': (
-        'Student Deleted — Refund Given',
+        'Deleted — Refund Given',
         Icons.person_remove_outlined,
-        Colors.orange,
+        const Color(0xFFF59E0B),
       ),
       'NO_REFUND_ON_DELETE': (
-        'Student Deleted — No Refund',
+        'Deleted — No Refund',
         Icons.person_remove_outlined,
-        Colors.red.shade400,
+        const Color(0xFFFCA5A5),
       ),
     };
-    final (label, icon, color) =
-        configs[type] ?? (type, Icons.info_outline, Colors.grey);
+    final (lbl, ico, clr) =
+        cfgs[type] ?? (type, Icons.info_outline, Colors.grey);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
@@ -1354,11 +1538,11 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
             width: 32,
             height: 32,
             decoration: BoxDecoration(
-              color: color.withOpacity(0.12),
+              color: clr.withOpacity(0.12),
               shape: BoxShape.circle,
-              border: Border.all(color: color.withOpacity(0.3)),
+              border: Border.all(color: clr.withOpacity(0.3)),
             ),
-            child: Icon(icon, size: 15, color: color),
+            child: Icon(ico, size: 15, color: clr),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -1370,11 +1554,11 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
                   children: [
                     Expanded(
                       child: Text(
-                        label,
+                        lbl,
                         style: GoogleFonts.plusJakartaSans(
                           fontSize: 13,
                           fontWeight: FontWeight.w800,
-                          color: const Color(0xFF1E293B),
+                          color: Colors.white,
                         ),
                       ),
                     ),
@@ -1382,7 +1566,7 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
                       _shortDate(date),
                       style: GoogleFonts.plusJakartaSans(
                         fontSize: 10,
-                        color: Colors.grey.shade400,
+                        color: Colors.white38,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -1393,15 +1577,15 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
                   spacing: 6,
                   runSpacing: 5,
                   children: [
-                    if (plan != '—') _tag(plan, Colors.blue),
+                    if (plan != '—') _tag(plan, const Color(0xFF818CF8)),
                     if (type == 'DISCOUNT_APPLIED')
-                      _tag('Disc ₹${paid.toInt()}', Colors.purple),
+                      _tag('Disc ₹${paid.toInt()}', const Color(0xFFC084FC)),
                     if (type != 'DISCOUNT_APPLIED' && paid > 0)
-                      _tag('Paid ₹${paid.toInt()}', Colors.green.shade700),
+                      _tag('Paid ₹${paid.toInt()}', const Color(0xFF34D399)),
                     if (due > 0)
-                      _tag('Due ₹${due.toInt()}', Colors.red.shade600),
+                      _tag('Due ₹${due.toInt()}', const Color(0xFFFCA5A5)),
                     if (due == 0 && paid > 0 && type != 'DISCOUNT_APPLIED')
-                      _tag('Account Cleared ✓', Colors.green.shade700),
+                      _tag('Cleared ✓', const Color(0xFF34D399)),
                   ],
                 ),
               ],
@@ -1415,9 +1599,9 @@ class _FinancialCalendarScreenState extends State<FinancialCalendarScreen> {
   Widget _tag(String text, Color c) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
     decoration: BoxDecoration(
-      color: c.withOpacity(0.1),
+      color: c.withOpacity(0.12),
       borderRadius: BorderRadius.circular(6),
-      border: Border.all(color: c.withOpacity(0.25)),
+      border: Border.all(color: c.withOpacity(0.3)),
     ),
     child: Text(
       text,
